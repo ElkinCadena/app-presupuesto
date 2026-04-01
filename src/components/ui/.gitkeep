@@ -1,0 +1,5 @@
+/**
+ * Componentes genéricos reutilizables (Button, Card, Input, Badge…)
+ * Se crean a medida que se necesitan con /nuevo-componente
+ */
+export { };

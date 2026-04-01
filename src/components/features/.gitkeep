@@ -1,0 +1,5 @@
+/**
+ * Componentes de dominio financiero (BudgetCard, ExpenseRow, PocketSummary…)
+ * Se crean a medida que se necesitan con /nuevo-componente
+ */
+export { };

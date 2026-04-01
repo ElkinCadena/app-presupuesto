@@ -1,7 +1,8 @@
-import type { NextConfig } from "next";
+import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // Habilitar Server Actions (ya habilitado por defecto en Next.js 15)
+  experimental: {},
 };
 
 export default nextConfig;
