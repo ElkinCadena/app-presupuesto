@@ -18,16 +18,26 @@ interface IngresosModalProps {
 const formatCOP = (value: number) =>
   new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(value);
 
+const formatMiles = (val: string): string => {
+  const digits = val.replace(/\D/g, '');
+  if (!digits) return '';
+  return new Intl.NumberFormat('es-CO', { maximumFractionDigits: 0 }).format(Number(digits));
+};
+const parseMiles = (val: string): number => {
+  const digits = val.replace(/\D/g, '');
+  return digits ? Number(digits) : 0;
+};
+
 const IngresosModal: FC<IngresosModalProps> = ({ monthId, fuentesIniciales, onClose }) => {
   const [fuentes, setFuentes] = useState<Fuente[]>(() =>
     fuentesIniciales.length > 0
-      ? fuentesIniciales.map((f, i) => ({ id: String(i), label: f.label, amount: String(f.amount) }))
+      ? fuentesIniciales.map((f, i) => ({ id: String(i), label: f.label, amount: formatMiles(String(f.amount)) }))
       : [{ id: '0', label: 'Salario', amount: '' }]
   );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const total = fuentes.reduce((sum, f) => sum + (parseFloat(f.amount) || 0), 0);
+  const total = fuentes.reduce((sum, f) => sum + (parseMiles(f.amount) || 0), 0);
 
   const agregarFuente = () => {
     setFuentes((prev) => [...prev, { id: Date.now().toString(), label: '', amount: '' }]);
@@ -49,7 +59,7 @@ const IngresosModal: FC<IngresosModalProps> = ({ monthId, fuentesIniciales, onCl
     setError(null);
     setLoading(true);
 
-    const fuentesValidas = fuentes.filter((f) => f.label.trim() && parseFloat(f.amount) > 0);
+    const fuentesValidas = fuentes.filter((f) => f.label.trim() && parseMiles(f.amount) > 0);
     if (fuentesValidas.length === 0) {
       setError('Agrega al menos una fuente con nombre y monto válido.');
       setLoading(false);
@@ -60,7 +70,7 @@ const IngresosModal: FC<IngresosModalProps> = ({ monthId, fuentesIniciales, onCl
       month_id: monthId,
       fuentes: fuentesValidas.map((f) => ({
         label: f.label.trim(),
-        amount: parseFloat(f.amount),
+        amount: parseMiles(f.amount),
       })),
     });
 
@@ -133,12 +143,11 @@ const IngresosModal: FC<IngresosModalProps> = ({ monthId, fuentesIniciales, onCl
                     aria-label={`Nombre fuente ${index + 1}`}
                   />
                   <input
-                    type="number"
+                    type="text"
+                    inputMode="numeric"
                     placeholder="Monto"
                     value={fuente.amount}
-                    min="0"
-                    step="1000"
-                    onChange={(e) => actualizarFuente(fuente.id, 'amount', e.target.value)}
+                    onChange={(e) => actualizarFuente(fuente.id, 'amount', formatMiles(e.target.value))}
                     className="w-32 px-3 py-2 text-sm rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
                     aria-label={`Monto fuente ${index + 1}`}
                   />

@@ -28,9 +28,9 @@ export type Database = {
         Relationships: []
       }
       expenses: {
-        Row: { id: string; month_id: string; category_id: string | null; amount: number; description: string | null; date: string; created_at: string }
-        Insert: { id?: string; month_id: string; category_id?: string | null; amount: number; description?: string | null; date: string; created_at?: string }
-        Update: { id?: string; month_id?: string; category_id?: string | null; amount?: number; description?: string | null; date?: string; created_at?: string }
+        Row: { id: string; month_id: string; category_id: string | null; pocket_id: string | null; amount: number; description: string | null; date: string; created_at: string }
+        Insert: { id?: string; month_id: string; category_id?: string | null; pocket_id?: string | null; amount: number; description?: string | null; date: string; created_at?: string }
+        Update: { id?: string; month_id?: string; category_id?: string | null; pocket_id?: string | null; amount?: number; description?: string | null; date?: string; created_at?: string }
         Relationships: []
       }
       pockets: {

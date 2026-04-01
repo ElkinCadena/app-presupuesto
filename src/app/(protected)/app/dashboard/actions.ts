@@ -150,17 +150,12 @@ export async function inicializarCategorias(): Promise<{ error: string } | { dat
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: 'No autorizado' };
 
-  const { count } = await supabase
-    .from('expense_categories')
-    .select('id', { count: 'exact', head: true })
-    .eq('user_id', user.id);
-
-  if ((count ?? 0) > 0) return { data: true };
-
   const categoriasPorDefecto = [
     { user_id: user.id, name: 'Alimentación', color: '#f97316' },
-    { user_id: user.id, name: 'Transporte', color: '#3b82f6' },
     { user_id: user.id, name: 'Vivienda', color: '#8b5cf6' },
+    { user_id: user.id, name: 'Deudas', color: '#7a272e' },
+    { user_id: user.id, name: 'Salidas', color: '#435620' },
+    { user_id: user.id, name: 'Transporte', color: '#3b82f6' },
     { user_id: user.id, name: 'Salud', color: '#ef4444' },
     { user_id: user.id, name: 'Entretenimiento', color: '#ec4899' },
     { user_id: user.id, name: 'Educación', color: '#06b6d4' },
@@ -168,7 +163,22 @@ export async function inicializarCategorias(): Promise<{ error: string } | { dat
     { user_id: user.id, name: 'Otros', color: '#6b7280' },
   ];
 
-  const { error } = await supabase.from('expense_categories').insert(categoriasPorDefecto);
+  // Obtener las categorías existentes para no duplicarlas
+  const { data: existentes } = await supabase
+    .from('expense_categories')
+    .select('name')
+    .eq('user_id', user.id);
+
+  const nombresExistentes = new Set(
+    (existentes ?? []).map((c) => c.name.trim().toLowerCase())
+  );
+  const nuevas = categoriasPorDefecto.filter(
+    (c) => !nombresExistentes.has(c.name.trim().toLowerCase())
+  );
+
+  if (nuevas.length === 0) return { data: true };
+
+  const { error } = await supabase.from('expense_categories').insert(nuevas);
   if (error) return { error: error.message };
   return { data: true };
 }
@@ -178,6 +188,7 @@ export async function inicializarCategorias(): Promise<{ error: string } | { dat
 const gastoSchema = z.object({
   month_id: z.string().uuid(),
   category_id: z.string().uuid().nullable(),
+  pocket_id: z.string().uuid().nullable().optional(),
   amount: z.number().positive('El monto debe ser mayor a 0'),
   description: z.string().max(200).optional(),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha inválida'),
@@ -208,6 +219,7 @@ export async function registrarGasto(
     .insert({
       month_id: parsed.data.month_id,
       category_id: parsed.data.category_id,
+      pocket_id: parsed.data.pocket_id ?? null,
       amount: parsed.data.amount,
       description: parsed.data.description ?? null,
       date: parsed.data.date,
@@ -218,6 +230,8 @@ export async function registrarGasto(
   if (error) return { error: error.message };
 
   revalidatePath('/app/dashboard');
+  revalidatePath('/app/gastos');
+  revalidatePath('/app/bolsillos');
   return { data };
 }
 
@@ -239,5 +253,6 @@ export async function eliminarGasto(
   if (error) return { error: error.message };
 
   revalidatePath('/app/dashboard');
+  revalidatePath('/app/gastos');
   return { data: true };
 }

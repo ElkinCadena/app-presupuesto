@@ -10,12 +10,20 @@ interface Categoria {
   color: string;
 }
 
+interface BolsilloResumen {
+  id: string;
+  name: string;
+  availableAmount: number;
+}
+
 interface DashboardClientProps {
   monthId: string;
   totalIncome: number;
   fuentesIniciales: { label: string; amount: number }[];
   gastosTotales: number;
   categorias: Categoria[];
+  bolsillos: BolsilloResumen[];
+  totalReservadoBolsillos: number;
 }
 
 const formatCOP = (value: number) =>
@@ -27,10 +35,12 @@ const DashboardClient: FC<DashboardClientProps> = ({
   fuentesIniciales,
   gastosTotales,
   categorias,
+  bolsillos,
+  totalReservadoBolsillos,
 }) => {
   const [modalIngresosOpen, setModalIngresosOpen] = useState(false);
   const [modalGastoOpen, setModalGastoOpen] = useState(false);
-  const disponible = totalIncome - gastosTotales;
+  const disponible = totalIncome - gastosTotales - totalReservadoBolsillos;
 
   return (
     <>
@@ -86,7 +96,7 @@ const DashboardClient: FC<DashboardClientProps> = ({
         <SummaryCard
           label="Disponible"
           value={totalIncome > 0 ? formatCOP(disponible) : '$0'}
-          description="Ingresos menos gastos"
+          description={totalReservadoBolsillos > 0 ? 'Libre tras gastos y bolsillos' : 'Ingresos menos gastos'}
           accent={disponible < 0 ? 'red' : 'green'}
           icon={
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -111,6 +121,7 @@ const DashboardClient: FC<DashboardClientProps> = ({
         <GastoModal
           monthId={monthId}
           categorias={categorias}
+          bolsillos={bolsillos}
           onClose={() => setModalGastoOpen(false)}
         />
       )}

@@ -1,6 +1,6 @@
 'use client';
 
-import { type FC, useState, useEffect } from 'react';
+import { type FC, useState, useEffect, useRef } from 'react';
 import { registrarGasto } from '@/app/(protected)/app/dashboard/actions';
 
 interface Categoria {
@@ -9,27 +9,52 @@ interface Categoria {
   color: string;
 }
 
+interface BolsilloResumen {
+  id: string;
+  name: string;
+  availableAmount: number;
+}
+
 interface GastoModalProps {
   monthId: string;
   categorias: Categoria[];
+  bolsillos?: BolsilloResumen[];
+  defaultPocketId?: string;
   onClose: () => void;
 }
 
 const today = () => new Date().toISOString().split('T')[0];
 
-const GastoModal: FC<GastoModalProps> = ({ monthId, categorias, onClose }) => {
+const formatMiles = (val: string): string => {
+  const digits = val.replace(/\D/g, '');
+  if (!digits) return '';
+  return new Intl.NumberFormat('es-CO', { maximumFractionDigits: 0 }).format(Number(digits));
+};
+const parseMiles = (val: string): number => {
+  const digits = val.replace(/\D/g, '');
+  return digits ? Number(digits) : 0;
+};
+
+const GastoModal: FC<GastoModalProps> = ({ monthId, categorias, bolsillos = [], defaultPocketId, onClose }) => {
   const [categoryId, setCategoryId] = useState<string>(categorias[0]?.id ?? '');
+  const [pocketId, setPocketId] = useState<string>(defaultPocketId ?? '');
   const [amount, setAmount] = useState('');
   const [description, setDescription] = useState('');
   const [date, setDate] = useState(today());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const dateInputRef = useRef<HTMLInputElement>(null);
+
+  // Sincronizar pocketId si se abre con un bolsillo pre-seleccionado
+  useEffect(() => {
+    setPocketId(defaultPocketId ?? '');
+  }, [defaultPocketId]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
-    const parsedAmount = parseFloat(amount);
+    const parsedAmount = parseMiles(amount);
     if (!parsedAmount || parsedAmount <= 0) {
       setError('Ingresa un monto válido mayor a 0.');
       return;
@@ -44,6 +69,7 @@ const GastoModal: FC<GastoModalProps> = ({ monthId, categorias, onClose }) => {
     const result = await registrarGasto({
       month_id: monthId,
       category_id: categoryId || null,
+      pocket_id: pocketId || null,
       amount: parsedAmount,
       description: description.trim() || undefined,
       date,
@@ -66,6 +92,13 @@ const GastoModal: FC<GastoModalProps> = ({ monthId, categorias, onClose }) => {
   }, [onClose]);
 
   const categoriaActual = categorias.find((c) => c.id === categoryId);
+  const bolsilloActual = bolsillos.find((b) => b.id === pocketId);
+  const parsedAmountPreview = parseMiles(amount);
+  const saldoInsuficiente =
+    bolsilloActual !== undefined &&
+    !isNaN(parsedAmountPreview) &&
+    parsedAmountPreview > 0 &&
+    parsedAmountPreview > bolsilloActual.availableAmount;
 
   return (
     <div
@@ -86,7 +119,9 @@ const GastoModal: FC<GastoModalProps> = ({ monthId, categorias, onClose }) => {
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
           <h2 id="gasto-modal-title" className="text-base font-semibold text-gray-900">
-            Registrar gasto
+            {defaultPocketId
+              ? `Gastar de "${bolsillos.find((b) => b.id === defaultPocketId)?.name ?? 'bolsillo'}"`
+              : 'Registrar gasto'}
           </h2>
           <button
             type="button"
@@ -138,13 +173,11 @@ const GastoModal: FC<GastoModalProps> = ({ monthId, categorias, onClose }) => {
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-medium">$</span>
               <input
                 id="monto"
-                type="number"
-                inputMode="decimal"
-                min="1"
-                step="any"
+                type="text"
+                inputMode="numeric"
                 placeholder="0"
                 value={amount}
-                onChange={(e) => setAmount(e.target.value)}
+                onChange={(e) => setAmount(formatMiles(e.target.value))}
                 className="w-full pl-7 pr-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 required
               />
@@ -170,15 +203,55 @@ const GastoModal: FC<GastoModalProps> = ({ monthId, categorias, onClose }) => {
           {/* Fecha */}
           <div className="flex flex-col gap-1.5">
             <label htmlFor="fecha" className="text-sm font-medium text-gray-700">Fecha</label>
-            <input
-              id="fecha"
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              required
-            />
+            <div
+              className="relative w-full cursor-pointer"
+              onClick={() => dateInputRef.current?.showPicker()}
+            >
+              <input
+                ref={dateInputRef}
+                id="fecha"
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent cursor-pointer"
+                required
+              />
+            </div>
           </div>
+
+          {/* Bolsillo (opcional / bloqueado si viene pre-seleccionado) */}
+          {defaultPocketId ? (
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-medium text-gray-700">Bolsillo</label>
+              <div className="flex items-center gap-2 px-3 py-2.5 bg-blue-50 border border-blue-100 rounded-lg">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-blue-500 flex-shrink-0" aria-hidden="true">
+                  <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+                </svg>
+                <span className="text-sm font-medium text-blue-700">
+                  {bolsillos.find((b) => b.id === defaultPocketId)?.name ?? 'Bolsillo'}
+                </span>
+              </div>
+            </div>
+          ) : bolsillos.length > 0 ? (
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="bolsillo" className="text-sm font-medium text-gray-700">
+                Bolsillo <span className="text-gray-400 font-normal">(opcional)</span>
+              </label>
+              <select
+                id="bolsillo"
+                value={pocketId}
+                onChange={(e) => setPocketId(e.target.value)}
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+              >
+                <option value="">Sin bolsillo</option>
+                {bolsillos.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
 
           {/* Resumen */}
           {amount && parseFloat(amount) > 0 && (
@@ -190,6 +263,24 @@ const GastoModal: FC<GastoModalProps> = ({ monthId, categorias, onClose }) => {
               <span>
                 {new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(parseFloat(amount))}
               </span>
+            </div>
+          )}
+
+          {/* Aviso de saldo insuficiente en bolsillo */}
+          {saldoInsuficiente && bolsilloActual && (
+            <div className="flex items-start gap-2.5 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2.5">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-amber-500 flex-shrink-0 mt-0.5" aria-hidden="true">
+                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                <line x1="12" y1="9" x2="12" y2="13" />
+                <line x1="12" y1="17" x2="12.01" y2="17" />
+              </svg>
+              <p className="text-xs text-amber-700 leading-relaxed">
+                El bolsillo <span className="font-semibold">{bolsilloActual.name}</span> solo tiene{' '}
+                <span className="font-semibold">
+                  {new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(bolsilloActual.availableAmount)}
+                </span>{' '}
+                disponible. Si continúas, el saldo quedará en negativo.
+              </p>
             </div>
           )}
 

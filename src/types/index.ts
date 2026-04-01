@@ -27,6 +27,7 @@ export interface Expense {
   amount: number;
   description: string | null;
   date: string;
+  pocketId: string | null;
   category: {
     id: string;
     name: string;
