@@ -4,52 +4,77 @@ import type { Database } from '@/lib/supabase/types';
 
 /**
  * POST /api/telegram/webhook
- *
- * Telegram envía aquí cada mensaje recibido por el bot.
  * Configurar con:
- *   https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://<dominio>/api/telegram/webhook
+ *   .../setWebhook?url=https://<dominio>/api/telegram/webhook&secret_token=<TELEGRAM_WEBHOOK_SECRET>
+ *
+ * Variables de entorno:
+ *   TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET,
+ *   NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
  */
-export async function POST(req: NextRequest): Promise<NextResponse> {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  if (!token) {
-    return NextResponse.json({ error: 'Bot no configurado' }, { status: 500 });
+
+// ── Rate limit: máx 15 mensajes/minuto por chat ───────────────────────────
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const RATE_LIMIT_MAX = 15;
+const rateLimitMap = new Map<number, { count: number; windowStart: number }>();
+
+function isRateLimited(chatId: number): boolean {
+  const now = Date.now();
+  const entry = rateLimitMap.get(chatId);
+  if (!entry || now - entry.windowStart > RATE_LIMIT_WINDOW_MS) {
+    rateLimitMap.set(chatId, { count: 1, windowStart: now });
+    return false;
   }
+  if (entry.count >= RATE_LIMIT_MAX) return true;
+  entry.count += 1;
+  return false;
+}
+
+export async function POST(req: NextRequest): Promise<NextResponse> {
+  // 1. Validar secret token del webhook
+  const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
+  if (webhookSecret) {
+    const incomingSecret = req.headers.get('x-telegram-bot-api-secret-token');
+    if (incomingSecret !== webhookSecret) {
+      return NextResponse.json({ ok: false }, { status: 401 });
+    }
+  }
+
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) return NextResponse.json({ ok: false }, { status: 500 });
 
   let body: TelegramUpdate;
   try {
     body = (await req.json()) as TelegramUpdate;
   } catch {
-    return NextResponse.json({ error: 'Payload inválido' }, { status: 400 });
+    return NextResponse.json({ ok: false }, { status: 400 });
   }
 
   const message = body.message;
-  if (!message) {
-    // Telegram puede enviar otros tipos de updates (edited_message, etc.)
-    return NextResponse.json({ ok: true });
-  }
+  if (!message) return NextResponse.json({ ok: true });
 
   const chatId = message.chat.id;
   const text = message.text?.trim() ?? '';
 
-  // ── Comando /start ────────────────────────────────────────────────────
-  if (text === '/start') {
-    await sendMessage(token, chatId, '👋 Hola! Para vincular tu cuenta escribe:\n\n/vincular CÓDIGO\n\nEncontrarás tu código en la sección *Configuración* de la app.');
+  // 2. Rate limit por chat
+  if (isRateLimited(chatId)) {
+    await sendMessage(token, chatId, '⚠️ Demasiados intentos. Espera un momento e intenta de nuevo.');
     return NextResponse.json({ ok: true });
   }
 
-  // ── Comando /vincular CODE ────────────────────────────────────────────
+  // /start
+  if (text === '/start') {
+    await sendMessage(token, chatId, '👋 Hola! Para vincular tu cuenta escribe:\n\n/vincular CÓDIGO\n\nEncontrarás tu código en la sección Configuración de la app.');
+    return NextResponse.json({ ok: true });
+  }
+
+  // /vincular CODE
   if (text.startsWith('/vincular ')) {
     const code = text.replace('/vincular ', '').trim().toUpperCase();
-
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-    if (!supabaseUrl || !serviceRoleKey) {
-      await sendMessage(token, chatId, '❌ Error de configuración del servidor. Contacta al administrador.');
+    const supabase = getServiceClient();
+    if (!supabase) {
+      await sendMessage(token, chatId, '❌ No se pudo procesar tu solicitud. Intenta más tarde.');
       return NextResponse.json({ ok: true });
     }
-
-    const supabase = createClient<Database>(supabaseUrl, serviceRoleKey);
 
     const { data: profile, error: fetchError } = await supabase
       .from('profiles')
@@ -70,15 +95,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     const { error: updateError } = await supabase
       .from('profiles')
-      .update({
-        telegram_chat_id: chatId,
-        telegram_link_token: null,
-        telegram_link_expires_at: null,
-      })
+      .update({ telegram_chat_id: chatId, telegram_link_token: null, telegram_link_expires_at: null })
       .eq('id', profile.id);
 
     if (updateError) {
-      await sendMessage(token, chatId, '❌ No se pudo completar la vinculación. Intenta de nuevo.');
+      await sendMessage(token, chatId, '❌ No se pudo procesar tu solicitud. Intenta más tarde.');
       return NextResponse.json({ ok: true });
     }
 
@@ -86,43 +107,28 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ ok: true });
   }
 
-  // ── Comando /ayuda ──────────────────────────────────────────────────────
+  // /ayuda
   if (text === '/ayuda') {
     await sendMessage(
-      token,
-      chatId,
-      '📖 *Comandos disponibles:*\n\n' +
-        '/vincular CÓDIGO — Vincular tu cuenta\n' +
-        '/ayuda — Ver esta ayuda\n\n' +
-        '📝 *Registrar un gasto:*\n' +
-        'Envía un mensaje con la descripción y el monto:\n\n' +
-        '`Almuerzo 15000`\n' +
-        '`15000 Transporte`\n' +
-        '`25000`\n\n' +
-        'El gasto se registra en el mes actual.'
+      token, chatId,
+      '📖 Comandos disponibles:\n\n/vincular CÓDIGO — Vincular tu cuenta\n/ayuda — Ver esta ayuda\n\n📝 Registrar un gasto:\nEnvía la descripción y el monto:\n\nAlmuerzo 15000\n15000 Transporte\n25000\n\nEl gasto se registra en el mes actual.'
     );
     return NextResponse.json({ ok: true });
   }
 
-  // ── Registro de gasto (texto libre) ────────────────────────────────────
+  // Texto libre → gasto
   const parsed = parseExpenseMessage(text);
-
   if (!parsed) {
-    await sendMessage(token, chatId, '🤖 No entendí ese mensaje.\n\nPara registrar un gasto escribe:\n`Almuerzo 15000`\n\nEscribe /ayuda para más info.');
+    await sendMessage(token, chatId, '🤖 No entendí ese mensaje.\n\nPara registrar un gasto escribe la descripción y el monto:\nAlmuerzo 15000\n\nEscribe /ayuda para más info.');
     return NextResponse.json({ ok: true });
   }
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!supabaseUrl || !serviceRoleKey) {
-    await sendMessage(token, chatId, '❌ Error de configuración del servidor.');
+  const supabase = getServiceClient();
+  if (!supabase) {
+    await sendMessage(token, chatId, '❌ No se pudo procesar tu solicitud. Intenta más tarde.');
     return NextResponse.json({ ok: true });
   }
 
-  const supabase = createClient<Database>(supabaseUrl, serviceRoleKey);
-
-  // Buscar usuario vinculado
   const { data: profile } = await supabase
     .from('profiles')
     .select('id')
@@ -130,11 +136,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     .single();
 
   if (!profile) {
-    await sendMessage(token, chatId, '⚠️ Tu cuenta no está vinculada.\n\nEscribe /start para ver cómo vincularla.');
+    await sendMessage(token, chatId, '⚠️ No se pudo registrar el gasto. Vincula tu cuenta desde la app y vuelve a intentar.');
     return NextResponse.json({ ok: true });
   }
 
-  // Obtener o crear el mes actual
   const now = new Date();
   const year = now.getFullYear();
   const month = now.getMonth() + 1;
@@ -155,64 +160,62 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       .single();
 
     if (createMonthError || !newMonth) {
-      await sendMessage(token, chatId, '❌ No se pudo crear el mes actual. Intenta de nuevo.');
+      await sendMessage(token, chatId, '❌ No se pudo procesar tu solicitud. Intenta más tarde.');
       return NextResponse.json({ ok: true });
     }
     monthRecord = newMonth;
   }
 
-  // Insertar gasto
+  const safeDescription = parsed.description
+    ? parsed.description.replace(/\s+/g, ' ').trim().slice(0, 120)
+    : null;
+
   const today = `${year}-${String(month).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
-  const { error: insertError } = await supabase
-    .from('expenses')
-    .insert({
-      month_id: monthRecord.id,
-      amount: parsed.amount,
-      description: parsed.description,
-      date: today,
-      category_id: null,
-      pocket_id: null,
-    });
+  const { error: insertError } = await supabase.from('expenses').insert({
+    month_id: monthRecord.id,
+    amount: parsed.amount,
+    description: safeDescription,
+    date: today,
+    category_id: null,
+    pocket_id: null,
+  });
 
   if (insertError) {
-    await sendMessage(token, chatId, '❌ No se pudo registrar el gasto. Intenta de nuevo.');
+    await sendMessage(token, chatId, '❌ No se pudo procesar tu solicitud. Intenta más tarde.');
     return NextResponse.json({ ok: true });
   }
 
   const formattedAmount = parsed.amount.toLocaleString('es-CO');
-  const descText = parsed.description ? ` — _${parsed.description}_` : '';
-  await sendMessage(token, chatId, `✅ Gasto registrado: *$${formattedAmount}*${descText}`);
+  const descText = safeDescription ? ` — ${safeDescription}` : '';
+  await sendMessage(token, chatId, `✅ Gasto registrado: $${formattedAmount}${descText}`);
   return NextResponse.json({ ok: true });
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
-/**
- * Parsea un mensaje de texto libre para extraer monto y descripción.
- * Formatos soportados:
- *   "Almuerzo 15000"  → { description: "Almuerzo", amount: 15000 }
- *   "15000 Almuerzo"  → { description: "Almuerzo", amount: 15000 }
- *   "15000"           → { description: null, amount: 15000 }
- */
+function getServiceClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) return null;
+  return createClient<Database>(url, key);
+}
+
 function parseExpenseMessage(text: string): { amount: number; description: string | null } | null {
   if (!text || text.startsWith('/')) return null;
 
-  // Formato: "Descripción 15000" o "Descripción 15.000" (al final)
   const amountAtEnd = text.match(/^(.+?)\s+([\d.,]+)$/);
   if (amountAtEnd) {
     const amount = parseAmount(amountAtEnd[2]);
     if (amount > 0) return { description: amountAtEnd[1].trim(), amount };
   }
 
-  // Formato: "15000 Descripción" (al inicio)
   const amountAtStart = text.match(/^([\d.,]+)\s+(.+)$/);
   if (amountAtStart) {
     const amount = parseAmount(amountAtStart[1]);
     if (amount > 0) return { description: amountAtStart[2].trim(), amount };
   }
 
-  // Formato: solo número "15000"
   const amount = parseAmount(text);
   if (amount > 0) return { description: null, amount };
 
@@ -220,7 +223,6 @@ function parseExpenseMessage(text: string): { amount: number; description: strin
 }
 
 function parseAmount(raw: string): number {
-  // Eliminar separadores de miles (puntos o comas) y convertir
   const cleaned = raw.replace(/[.,]/g, '');
   const num = Number(cleaned);
   return Number.isFinite(num) && num > 0 ? num : 0;
@@ -230,7 +232,7 @@ async function sendMessage(token: string, chatId: number, text: string): Promise
   await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'Markdown' }),
+    body: JSON.stringify({ chat_id: chatId, text }),
   });
 }
 
