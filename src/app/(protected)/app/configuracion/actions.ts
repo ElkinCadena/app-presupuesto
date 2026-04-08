@@ -121,7 +121,7 @@ export async function eliminarCategoria(
   return { data: true };
 }
 
-// ── Obtener perfil ────────────────────────────────────────────────────────
+// ── Obtener el perfil ────────────────────────────────────────────────────────
 
 export async function obtenerPerfil(): Promise<
   { error: string } | { data: { full_name: string | null } }
