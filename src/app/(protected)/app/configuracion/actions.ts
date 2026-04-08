@@ -202,3 +202,24 @@ export async function desvincularTelegram(): Promise<{ error: string } | { data:
   revalidatePath('/app/configuracion');
   return { data: true };
 }
+
+// ── Telegram — Verificar si la cuenta ya fue vinculada ────────────────────
+
+export async function verificarVinculacionTelegram(): Promise<
+  { error: string } | { data: { vinculado: boolean } }
+> {
+  const supabase = await createServerSupabaseClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: 'No autorizado' };
+
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('telegram_chat_id')
+    .eq('id', user.id)
+    .single();
+
+  if (error) return { error: error.message };
+  return { data: { vinculado: data?.telegram_chat_id !== null } };
+}

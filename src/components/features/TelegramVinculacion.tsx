@@ -1,7 +1,12 @@
 'use client';
 
-import { type FC, useState } from 'react';
-import { generarTokenTelegram, desvincularTelegram } from '@/app/(protected)/app/configuracion/actions';
+import { type FC, useState, useEffect, useRef, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
+import {
+  generarTokenTelegram,
+  desvincularTelegram,
+  verificarVinculacionTelegram,
+} from '@/app/(protected)/app/configuracion/actions';
 
 interface TelegramVinculacionProps {
   /** chat_id del usuario si ya está vinculado, null si no */
@@ -16,7 +21,35 @@ const TelegramVinculacion: FC<TelegramVinculacionProps> = ({ telegramChatId }) =
   const [error, setError] = useState<string | null>(null);
   const [unlinked, setUnlinked] = useState(false);
 
+  const router = useRouter();
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   const isVinculado = telegramChatId !== null && !unlinked;
+
+  const stopPolling = useCallback(() => {
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
+  }, []);
+
+  // Polling: verificar vinculación cada 5s mientras haya un token activo
+  useEffect(() => {
+    if (!token || isVinculado) {
+      stopPolling();
+      return;
+    }
+
+    pollingRef.current = setInterval(async () => {
+      const result = await verificarVinculacionTelegram();
+      if ('data' in result && result.data.vinculado) {
+        stopPolling();
+        router.refresh();
+      }
+    }, 5000);
+
+    return () => stopPolling();
+  }, [token, isVinculado, stopPolling, router]);
 
   const handleGenerar = async () => {
     setError(null);
