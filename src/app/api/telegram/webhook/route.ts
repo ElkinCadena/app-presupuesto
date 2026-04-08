@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
+import type { Database } from '@/lib/supabase/types';
 
 /**
  * POST /api/telegram/webhook
@@ -6,8 +8,6 @@ import { NextRequest, NextResponse } from 'next/server';
  * Telegram envía aquí cada mensaje recibido por el bot.
  * Configurar con:
  *   https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://<dominio>/api/telegram/webhook
- *
- * Fase actual: estructura base — lógica de mensajes en fase siguiente.
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -40,9 +40,49 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // ── Comando /vincular CODE ────────────────────────────────────────────
   if (text.startsWith('/vincular ')) {
     const code = text.replace('/vincular ', '').trim().toUpperCase();
-    // TODO (fase siguiente): validar code contra profiles.telegram_link_token
-    //   y guardar telegram_chat_id en el perfil del usuario.
-    await sendMessage(token, chatId, `🔗 Código recibido: *${code}*\n\nLa vinculación completa estará disponible próximamente.`);
+
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!supabaseUrl || !serviceRoleKey) {
+      await sendMessage(token, chatId, '❌ Error de configuración del servidor. Contacta al administrador.');
+      return NextResponse.json({ ok: true });
+    }
+
+    const supabase = createClient<Database>(supabaseUrl, serviceRoleKey);
+
+    const { data: profile, error: fetchError } = await supabase
+      .from('profiles')
+      .select('id, telegram_link_token, telegram_link_expires_at')
+      .eq('telegram_link_token', code)
+      .single();
+
+    const isValid =
+      !fetchError &&
+      profile !== null &&
+      profile.telegram_link_expires_at !== null &&
+      new Date(profile.telegram_link_expires_at) > new Date();
+
+    if (!isValid) {
+      await sendMessage(token, chatId, '❌ Código inválido o expirado. Genera uno nuevo desde la app.');
+      return NextResponse.json({ ok: true });
+    }
+
+    const { error: updateError } = await supabase
+      .from('profiles')
+      .update({
+        telegram_chat_id: chatId,
+        telegram_link_token: null,
+        telegram_link_expires_at: null,
+      })
+      .eq('id', profile.id);
+
+    if (updateError) {
+      await sendMessage(token, chatId, '❌ No se pudo completar la vinculación. Intenta de nuevo.');
+      return NextResponse.json({ ok: true });
+    }
+
+    await sendMessage(token, chatId, '✅ Cuenta vinculada correctamente. Ya puedes registrar gastos desde aquí.');
     return NextResponse.json({ ok: true });
   }
 

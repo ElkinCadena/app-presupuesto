@@ -124,7 +124,7 @@ export async function eliminarCategoria(
 // ── Obtener el perfil ────────────────────────────────────────────────────────
 
 export async function obtenerPerfil(): Promise<
-  { error: string } | { data: { full_name: string | null } }
+  { error: string } | { data: { full_name: string | null; telegram_chat_id: number | null } }
 > {
   const supabase = await createServerSupabaseClient();
   const {
@@ -134,12 +134,12 @@ export async function obtenerPerfil(): Promise<
 
   const { data, error } = await supabase
     .from('profiles')
-    .select('full_name')
+    .select('full_name, telegram_chat_id')
     .eq('id', user.id)
     .single();
 
   if (error) return { error: error.message };
-  return { data: { full_name: data?.full_name ?? null } };
+  return { data: { full_name: data?.full_name ?? null, telegram_chat_id: data?.telegram_chat_id ?? null } };
 }
 
 // ── Telegram — Generar token de vinculación ───────────────────────────────
@@ -170,8 +170,8 @@ export async function generarTokenTelegram(): Promise<
 
   const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString(); // 10 minutos
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { error } = await (supabase.from('profiles') as any)
+  const { error } = await supabase
+    .from('profiles')
     .update({ telegram_link_token: token, telegram_link_expires_at: expiresAt })
     .eq('id', user.id);
 
@@ -188,8 +188,8 @@ export async function desvincularTelegram(): Promise<{ error: string } | { data:
   } = await supabase.auth.getUser();
   if (!user) return { error: 'No autorizado' };
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { error } = await (supabase.from('profiles') as any)
+  const { error } = await supabase
+    .from('profiles')
     .update({
       telegram_chat_id: null,
       telegram_link_token: null,
