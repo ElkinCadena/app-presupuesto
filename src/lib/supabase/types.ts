@@ -193,6 +193,7 @@ export type Database = {
       profiles: {
         Row: {
           avatar_url: string | null
+          billing_cycle_day: number | null
           created_at: string
           currency: string
           full_name: string | null
@@ -200,9 +201,11 @@ export type Database = {
           telegram_chat_id: number | null
           telegram_link_expires_at: string | null
           telegram_link_token: string | null
+          telegram_session: Json | null
         }
         Insert: {
           avatar_url?: string | null
+          billing_cycle_day?: number | null
           created_at?: string
           currency?: string
           full_name?: string | null
@@ -210,9 +213,11 @@ export type Database = {
           telegram_chat_id?: number | null
           telegram_link_expires_at?: string | null
           telegram_link_token?: string | null
+          telegram_session?: Json | null
         }
         Update: {
           avatar_url?: string | null
+          billing_cycle_day?: number | null
           created_at?: string
           currency?: string
           full_name?: string | null
@@ -220,6 +225,7 @@ export type Database = {
           telegram_chat_id?: number | null
           telegram_link_expires_at?: string | null
           telegram_link_token?: string | null
+          telegram_session?: Json | null
         }
         Relationships: []
       }

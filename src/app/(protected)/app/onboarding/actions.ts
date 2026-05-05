@@ -7,9 +7,14 @@ import { z } from 'zod';
 
 const onboardingSchema = z.object({
   full_name: z.string().min(2, 'El nombre debe tener al menos 2 caracteres').max(80),
+  billing_cycle_day: z
+    .number()
+    .int()
+    .min(1, 'El día debe ser entre 1 y 28')
+    .max(28, 'Usa un día entre 1 y 28 para que funcione en todos los meses'),
 });
 
-export async function guardarNombrePerfil(
+export async function guardarOnboarding(
   input: z.infer<typeof onboardingSchema>
 ): Promise<{ error: string } | void> {
   const parsed = onboardingSchema.safeParse(input);
@@ -27,9 +32,10 @@ export async function guardarNombrePerfil(
     .upsert({
       id: user.id,
       full_name: parsed.data.full_name,
+      billing_cycle_day: parsed.data.billing_cycle_day,
     });
 
-  if (error) return { error: 'No se pudo guardar el nombre. Intenta de nuevo.' };
+  if (error) return { error: 'No se pudo guardar el perfil. Intenta de nuevo.' };
 
   revalidatePath('/app/dashboard');
   redirect('/app/dashboard');

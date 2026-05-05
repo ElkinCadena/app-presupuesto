@@ -2,6 +2,7 @@
 
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import type { Database } from '@/lib/supabase/types';
+import ExcelJS from 'exceljs';
 
 type MonthRow = Database['public']['Tables']['months']['Row'];
 
@@ -152,4 +153,67 @@ export async function obtenerDetalleMes(
       gastos,
     },
   };
+}
+
+// ── Exportar mes como Excel ────────────────────────────────────────────────
+
+export async function exportarMesExcel(
+  year: number,
+  month: number
+): Promise<{ error: string } | { data: string; filename: string }> {
+  const detalleResult = await obtenerDetalleMes(year, month);
+  if ('error' in detalleResult) return { error: detalleResult.error };
+
+  const mes = detalleResult.data;
+  const monthLabel = new Date(year, month - 1, 1).toLocaleString('es-CO', { month: 'long', year: 'numeric' });
+  const filename = `presupuesto-${year}-${String(month).padStart(2, '0')}.xlsx`;
+
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = 'App Presupuesto';
+
+  // Hoja 1 — Resumen
+  const wsResumen = workbook.addWorksheet('Resumen');
+  wsResumen.columns = [
+    { header: 'Concepto', key: 'concepto', width: 30 },
+    { header: 'Valor', key: 'valor', width: 20 },
+  ];
+  wsResumen.addRow({ concepto: 'Período', valor: monthLabel });
+  wsResumen.addRow({ concepto: 'Ingresos totales', valor: mes.totalIncome });
+  wsResumen.addRow({ concepto: 'Gastos totales', valor: mes.totalExpenses });
+  wsResumen.addRow({ concepto: 'Balance', valor: mes.balance });
+  wsResumen.addRow({});
+  wsResumen.addRow({ concepto: 'Categoría', valor: 'Total gastos' });
+  for (const cat of mes.gastosPorCategoria) {
+    wsResumen.addRow({ concepto: cat.name, valor: cat.total });
+  }
+
+  // Hoja 2 — Gastos detallados
+  const wsGastos = workbook.addWorksheet('Gastos');
+  wsGastos.columns = [
+    { header: 'Fecha', key: 'fecha', width: 14 },
+    { header: 'Descripción', key: 'descripcion', width: 35 },
+    { header: 'Categoría', key: 'categoria', width: 20 },
+    { header: 'Monto', key: 'monto', width: 18 },
+  ];
+  for (const g of mes.gastos) {
+    wsGastos.addRow({
+      fecha: g.date,
+      descripcion: g.description ?? '',
+      categoria: g.categoria?.name ?? 'Sin categoría',
+      monto: g.amount,
+    });
+  }
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  const base64 = Buffer.from(buffer).toString('base64');
+  return { data: base64, filename };
+}
+
+// ── Obtener datos para exportar PDF (cliente usa jsPDF) ───────────────────
+
+export async function obtenerDatosExportPDF(
+  year: number,
+  month: number
+): Promise<{ error: string } | { data: MesDetalle }> {
+  return obtenerDetalleMes(year, month);
 }

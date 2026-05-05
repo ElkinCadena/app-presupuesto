@@ -38,6 +38,9 @@ export default async function DetalleMesPage({ params }: PageProps) {
 
   const mes = result.data;
 
+  const profileResult = await supabase.from('profiles').select('currency').eq('id', user.id).single();
+  const currency = (profileResult.data as { currency?: string | null } | null)?.currency ?? 'COP';
+
   const MESES_ES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 
   return (
@@ -59,7 +62,7 @@ export default async function DetalleMesPage({ params }: PageProps) {
         <p className="text-gray-500 mt-1 text-sm">Resumen de este mes (solo lectura)</p>
       </div>
 
-      <DetalleMesClient mes={mes} />
+      <DetalleMesClient mes={mes} currency={currency} />
     </div>
   );
 }

@@ -16,8 +16,13 @@ export default async function HistorialPage() {
 
   if (!user) redirect('/login');
 
-  const result = await obtenerHistorial();
-  const meses = 'data' in result ? result.data : [];
+  const [historialResult, profileResult] = await Promise.all([
+    obtenerHistorial(),
+    supabase.from('profiles').select('currency').eq('id', user.id).single(),
+  ]);
+
+  const meses = 'data' in historialResult ? historialResult.data : [];
+  const currency = (profileResult.data as { currency?: string | null } | null)?.currency ?? 'COP';
 
   return (
     <div className="space-y-6">
@@ -28,7 +33,7 @@ export default async function HistorialPage() {
         </p>
       </div>
 
-      <HistorialClient meses={meses} />
+      <HistorialClient meses={meses} currency={currency} />
     </div>
   );
 }

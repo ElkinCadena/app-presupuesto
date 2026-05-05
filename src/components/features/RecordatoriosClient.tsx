@@ -2,21 +2,32 @@
 
 import { type FC, useState } from 'react';
 import RecordatorioModal from '@/components/features/RecordatorioModal';
+import GastoModal from '@/components/features/GastoModal';
 import { eliminarRecordatorio, toggleRecordatorio } from '@/app/(protected)/app/recordatorios/actions';
+import { formatCurrency } from '@/lib/utils';
 import type { Database } from '@/lib/supabase/types';
 
 type ReminderRow = Database['public']['Tables']['reminders']['Row'];
 
-interface RecordatoriosClientProps {
-  recordatorios: ReminderRow[];
+interface Categoria {
+  id: string;
+  name: string;
+  color: string;
 }
 
-const formatCOP = (value: number) =>
-  new Intl.NumberFormat('es-CO', {
-    style: 'currency',
-    currency: 'COP',
-    maximumFractionDigits: 0,
-  }).format(value);
+interface BolsilloResumen {
+  id: string;
+  name: string;
+  availableAmount: number;
+}
+
+interface RecordatoriosClientProps {
+  recordatorios: ReminderRow[];
+  monthId: string;
+  categorias: Categoria[];
+  bolsillos: BolsilloResumen[];
+  currency?: string;
+}
 
 const diasHastaProximo = (dayOfMonth: number): number => {
   const now = new Date();
@@ -26,12 +37,13 @@ const diasHastaProximo = (dayOfMonth: number): number => {
   return daysInMonth - currentDay + dayOfMonth;
 };
 
-const RecordatoriosClient: FC<RecordatoriosClientProps> = ({ recordatorios }) => {
+const RecordatoriosClient: FC<RecordatoriosClientProps> = ({ recordatorios, monthId, categorias, bolsillos, currency = 'COP' }) => {
   const [modalOpen, setModalOpen] = useState(false);
   const [editando, setEditando] = useState<ReminderRow | undefined>(undefined);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [pagarRecordatorio, setPagarRecordatorio] = useState<ReminderRow | null>(null);
 
   const handleOpenCrear = () => { setEditando(undefined); setModalOpen(true); };
   const handleOpenEditar = (r: ReminderRow) => { setEditando(r); setModalOpen(true); };
@@ -128,12 +140,23 @@ const RecordatoriosClient: FC<RecordatoriosClientProps> = ({ recordatorios }) =>
                 {/* Monto */}
                 {r.amount != null && (
                   <span className="text-sm font-semibold text-gray-900 flex-shrink-0">
-                    {formatCOP(r.amount)}
+                    {formatCurrency(r.amount, currency)}
                   </span>
                 )}
 
                 {/* Acciones */}
                 <div className="flex items-center gap-1 flex-shrink-0">
+                  {/* Pagar recordatorio */}
+                  {r.active && monthId && (
+                    <button
+                      type="button"
+                      onClick={() => setPagarRecordatorio(r)}
+                      className="px-2 py-1 text-xs font-medium rounded-md bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors"
+                      aria-label={`Registrar pago de ${r.name}`}
+                    >
+                      Pagar
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => handleOpenEditar(r)}
@@ -186,6 +209,17 @@ const RecordatoriosClient: FC<RecordatoriosClientProps> = ({ recordatorios }) =>
       )}
 
       <RecordatorioModal isOpen={modalOpen} onClose={handleClose} recordatorio={editando} />
+
+      {pagarRecordatorio && monthId && (
+        <GastoModal
+          monthId={monthId}
+          categorias={categorias}
+          bolsillos={bolsillos}
+          defaultAmount={pagarRecordatorio.amount ?? undefined}
+          defaultDescription={pagarRecordatorio.name}
+          onClose={() => setPagarRecordatorio(null)}
+        />
+      )}
     </>
   );
 };

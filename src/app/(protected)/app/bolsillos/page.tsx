@@ -2,19 +2,13 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import type { Metadata } from 'next';
 import { obtenerMesActivo, inicializarCategorias, obtenerCategorias } from '@/app/(protected)/app/dashboard/actions';
-import { obtenerBolsillos } from './actions';
+import { obtenerBolsillos, tieneCicloAnteriorConBolsillos } from './actions';
 import BolsillosClient from '@/components/features/BolsillosClient';
+import { formatCurrency, getCycleLabel } from '@/lib/utils';
 
 export const metadata: Metadata = {
   title: 'Bolsillos — Presupuesto Personal',
 };
-
-const formatCOP = (value: number) =>
-  new Intl.NumberFormat('es-CO', {
-    style: 'currency',
-    currency: 'COP',
-    maximumFractionDigits: 0,
-  }).format(value);
 
 export default async function BolsillosPage() {
   const supabase = await createServerSupabaseClient();
@@ -34,34 +28,34 @@ export default async function BolsillosPage() {
   }
 
   const mes = mesResult.data;
+  const cycleLabel = getCycleLabel(mes.year, mes.month, mes.billing_cycle_day);
 
   await inicializarCategorias();
 
-  const [bolsillosResult, categoriasResult] = await Promise.all([
+  const [bolsillosResult, categoriasResult, hayAnterior] = await Promise.all([
     obtenerBolsillos(mes.id),
     obtenerCategorias(),
+    tieneCicloAnteriorConBolsillos(mes.year, mes.month),
   ]);
 
   const bolsillos = 'data' in bolsillosResult ? bolsillosResult.data : [];
   const categorias = 'data' in categoriasResult ? categoriasResult.data : [];
+  const currency = mes.currency;
 
   const totalAsignado = bolsillos.reduce((sum, p) => sum + p.assignedAmount, 0);
   const totalUsado = bolsillos.reduce((sum, p) => sum + p.usedAmount, 0);
   const totalDisponible = bolsillos.reduce((sum, p) => sum + p.availableAmount, 0);
-
-  const now = new Date();
-  const monthName = now.toLocaleString('es-CO', { month: 'long' });
 
   return (
     <div className="space-y-8">
       {/* Header */}
       <div>
         <p className="text-sm text-gray-400 font-medium uppercase tracking-widest mb-1">
-          {monthName} {now.getFullYear()}
+          {cycleLabel}
         </p>
         <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Bolsillos</h1>
         <p className="text-gray-500 mt-1 text-sm">
-          Distribuye tu dinero en categorías o metas para este mes.
+          Distribuye tu dinero en categorías o metas para este ciclo.
         </p>
       </div>
 
@@ -70,23 +64,19 @@ export default async function BolsillosPage() {
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="bg-white rounded-xl border border-gray-100 p-5">
             <p className="text-xs text-gray-400 mb-1">Total asignado</p>
-            <p className="text-xl font-bold text-gray-900">{formatCOP(totalAsignado)}</p>
+            <p className="text-xl font-bold text-gray-900">{formatCurrency(totalAsignado, currency)}</p>
             <p className="text-xs text-gray-400 mt-0.5">
-              de {formatCOP(mes.total_income)} en ingresos
+              de {formatCurrency(mes.total_income, currency)} en ingresos
             </p>
           </div>
           <div className="bg-white rounded-xl border border-gray-100 p-5">
             <p className="text-xs text-gray-400 mb-1">Total usado</p>
-            <p className="text-xl font-bold text-gray-900">{formatCOP(totalUsado)}</p>
+            <p className="text-xl font-bold text-gray-900">{formatCurrency(totalUsado, currency)}</p>
           </div>
           <div className="bg-white rounded-xl border border-gray-100 p-5">
             <p className="text-xs text-gray-400 mb-1">Total disponible</p>
-            <p
-              className={`text-xl font-bold ${
-                totalDisponible < 0 ? 'text-red-600' : 'text-emerald-600'
-              }`}
-            >
-              {formatCOP(totalDisponible)}
+            <p className={`text-xl font-bold ${totalDisponible < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+              {formatCurrency(totalDisponible, currency)}
             </p>
           </div>
         </div>
@@ -103,6 +93,8 @@ export default async function BolsillosPage() {
           bolsillos={bolsillos}
           monthId={mes.id}
           categorias={categorias.map((c) => ({ id: c.id, name: c.name, color: c.color }))}
+          hayCicloAnteriorConBolsillos={hayAnterior}
+          currency={currency}
         />
       </div>
     </div>

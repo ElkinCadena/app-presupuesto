@@ -1,19 +1,15 @@
 'use client';
 
-import { type FC } from 'react';
+import { type FC, useState } from 'react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 import type { MesDetalle } from '@/app/(protected)/app/historial/actions';
+import { exportarMesExcel, obtenerDatosExportPDF } from '@/app/(protected)/app/historial/actions';
+import { formatCurrency } from '@/lib/utils';
 
 interface DetalleMesClientProps {
   mes: MesDetalle;
+  currency?: string;
 }
-
-const formatCOP = (value: number) =>
-  new Intl.NumberFormat('es-CO', {
-    style: 'currency',
-    currency: 'COP',
-    maximumFractionDigits: 0,
-  }).format(value);
 
 const formatFecha = (iso: string) =>
   new Date(iso + 'T00:00:00').toLocaleDateString('es-CO', {
@@ -21,21 +17,77 @@ const formatFecha = (iso: string) =>
     month: 'short',
   });
 
-const CustomTooltip = ({ active, payload }: { active?: boolean; payload?: { name: string; value: number }[] }) => {
-  if (!active || !payload?.length) return null;
-  return (
-    <div className="bg-white border border-gray-200 rounded-lg shadow-sm px-3 py-2 text-xs">
-      <p className="font-semibold text-gray-800">{payload[0].name}</p>
-      <p className="text-gray-500 mt-0.5">{formatCOP(payload[0].value)}</p>
-    </div>
-  );
-};
-
-const DetalleMesClient: FC<DetalleMesClientProps> = ({ mes }) => {
+const DetalleMesClient: FC<DetalleMesClientProps> = ({ mes, currency = 'COP' }) => {
   const pct = mes.totalIncome > 0
     ? Math.min(100, Math.round((mes.totalExpenses / mes.totalIncome) * 100))
     : 0;
   const deficit = mes.balance < 0;
+  const fmt = (v: number) => formatCurrency(v, currency);
+
+  const CustomTooltip = ({ active, payload }: { active?: boolean; payload?: { name: string; value: number }[] }) => {
+    if (!active || !payload?.length) return null;
+    return (
+      <div className="bg-white border border-gray-200 rounded-lg shadow-sm px-3 py-2 text-xs">
+        <p className="font-semibold text-gray-800">{payload[0].name}</p>
+        <p className="text-gray-500 mt-0.5">{fmt(payload[0].value)}</p>
+      </div>
+    );
+  };
+
+  const [exportingExcel, setExportingExcel] = useState(false);
+  const [exportingPDF, setExportingPDF] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+
+  const handleExportExcel = async () => {
+    setExportingExcel(true);
+    setExportError(null);
+    const result = await exportarMesExcel(mes.year, mes.month);
+    if ('error' in result) {
+      setExportError(result.error);
+    } else {
+      const bytes = Uint8Array.from(atob(result.data), (c) => c.charCodeAt(0));
+      const blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = result.filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+    setExportingExcel(false);
+  };
+
+  const handleExportPDF = async () => {
+    setExportingPDF(true);
+    setExportError(null);
+    try {
+      const result = await obtenerDatosExportPDF(mes.year, mes.month);
+      if ('error' in result) throw new Error(result.error);
+      const d = result.data;
+      const monthLabel = new Date(d.year, d.month - 1, 1).toLocaleString('es-CO', { month: 'long', year: 'numeric' });
+      const fmtPdf = (v: number) => formatCurrency(v, currency);
+
+      const { default: jsPDF } = await import('jspdf');
+      const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+      const lm = 15; let y = 20;
+      doc.setFontSize(16); doc.setFont('helvetica', 'bold');
+      doc.text(`Presupuesto — ${monthLabel}`, lm, y); y += 10;
+      doc.setFontSize(10); doc.setFont('helvetica', 'normal');
+      doc.text(`Ingresos: ${fmtPdf(d.totalIncome)}   Gastos: ${fmtPdf(d.totalExpenses)}   Balance: ${fmtPdf(d.balance)}`, lm, y); y += 10;
+      doc.setFont('helvetica', 'bold');
+      doc.text('Gastos detallados', lm, y); y += 7;
+      doc.setFont('helvetica', 'normal');
+      for (const g of d.gastos) {
+        if (y > 270) { doc.addPage(); y = 20; }
+        const line = `${g.date}  ${g.categoria?.name ?? 'Sin cat.'}  ${g.description ?? ''}  ${fmtPdf(g.amount)}`;
+        doc.text(line, lm, y, { maxWidth: 180 }); y += 6;
+      }
+      doc.save(`presupuesto-${d.year}-${String(d.month).padStart(2, '0')}.pdf`);
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : 'Error al generar PDF');
+    }
+    setExportingPDF(false);
+  };
 
   // Agrupar gastos por fecha
   const grouped = mes.gastos.reduce<Record<string, typeof mes.gastos>>((acc, g) => {
@@ -47,15 +99,43 @@ const DetalleMesClient: FC<DetalleMesClientProps> = ({ mes }) => {
 
   return (
     <div className="space-y-8">
+      {/* Export toolbar */}
+      <div className="flex items-center gap-2 justify-end">
+        {exportError && <span className="text-xs text-red-600 mr-auto">{exportError}</span>}
+        <button
+          type="button"
+          onClick={handleExportExcel}
+          disabled={exportingExcel}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition-colors"
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+            <line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 18 15 15"/>
+          </svg>
+          {exportingExcel ? 'Generando...' : 'Excel'}
+        </button>
+        <button
+          type="button"
+          onClick={handleExportPDF}
+          disabled={exportingPDF}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition-colors"
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+          </svg>
+          {exportingPDF ? 'Generando...' : 'PDF'}
+        </button>
+      </div>
+
       {/* Summary cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-white rounded-xl border border-gray-100 p-5">
           <p className="text-xs text-gray-400 mb-1">Ingresos</p>
-          <p className="text-xl font-bold text-gray-900">{formatCOP(mes.totalIncome)}</p>
+          <p className="text-xl font-bold text-gray-900">{fmt(mes.totalIncome)}</p>
         </div>
         <div className="bg-white rounded-xl border border-gray-100 p-5">
           <p className="text-xs text-gray-400 mb-1">Gastos</p>
-          <p className="text-xl font-bold text-gray-900">{formatCOP(mes.totalExpenses)}</p>
+          <p className="text-xl font-bold text-gray-900">{fmt(mes.totalExpenses)}</p>
           {mes.totalIncome > 0 && (
             <p className="text-xs text-gray-400 mt-0.5">{pct}% de los ingresos</p>
           )}
@@ -63,7 +143,7 @@ const DetalleMesClient: FC<DetalleMesClientProps> = ({ mes }) => {
         <div className="bg-white rounded-xl border border-gray-100 p-5">
           <p className="text-xs text-gray-400 mb-1">Balance</p>
           <p className={`text-xl font-bold ${deficit ? 'text-red-600' : 'text-emerald-600'}`}>
-            {formatCOP(mes.balance)}
+            {fmt(mes.balance)}
           </p>
         </div>
       </div>
@@ -95,7 +175,7 @@ const DetalleMesClient: FC<DetalleMesClientProps> = ({ mes }) => {
                     <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: cat.color }} />
                     <span className="text-xs text-gray-600 truncate">{cat.name}</span>
                     <span className="text-xs font-medium text-gray-800 ml-auto flex-shrink-0">
-                      {formatCOP(cat.total)}
+                      {fmt(cat.total)}
                     </span>
                   </li>
                 ))}
@@ -131,7 +211,7 @@ const DetalleMesClient: FC<DetalleMesClientProps> = ({ mes }) => {
                           {g.description ?? g.categoria?.name ?? 'Sin descripción'}
                         </span>
                         <span className="text-xs font-semibold text-gray-900 flex-shrink-0">
-                          {formatCOP(g.amount)}
+                          {fmt(g.amount)}
                         </span>
                       </div>
                     ))}

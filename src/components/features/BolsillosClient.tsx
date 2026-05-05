@@ -4,7 +4,7 @@ import { type FC, useState } from 'react';
 import PocketCard from '@/components/features/PocketCard';
 import PocketModal from '@/components/features/PocketModal';
 import GastoModal from '@/components/features/GastoModal';
-import { eliminarBolsillo } from '@/app/(protected)/app/bolsillos/actions';
+import { eliminarBolsillo, copiarBolsillosMesAnterior } from '@/app/(protected)/app/bolsillos/actions';
 import type { Pocket } from '@/types';
 
 interface Categoria {
@@ -17,14 +17,18 @@ interface BolsillosClientProps {
   bolsillos: Pocket[];
   monthId: string;
   categorias: Categoria[];
+  hayCicloAnteriorConBolsillos?: boolean;
+  currency?: string;
 }
 
-const BolsillosClient: FC<BolsillosClientProps> = ({ bolsillos, monthId, categorias }) => {
+const BolsillosClient: FC<BolsillosClientProps> = ({ bolsillos, monthId, categorias, hayCicloAnteriorConBolsillos = false, currency = 'COP' }) => {
   const [modalOpen, setModalOpen] = useState(false);
   const [bolsilloEditando, setBolsilloEditando] = useState<Pocket | undefined>(undefined);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [gastoModalPocket, setGastoModalPocket] = useState<Pocket | null>(null);
+  const [copying, setCopying] = useState(false);
+  const [copyError, setCopyError] = useState<string | null>(null);
 
   const handleOpenCrear = () => {
     setBolsilloEditando(undefined);
@@ -45,6 +49,16 @@ const BolsillosClient: FC<BolsillosClientProps> = ({ bolsillos, monthId, categor
     setGastoModalPocket(pocket);
   };
 
+  const handleCopiarAnterior = async () => {
+    setCopyError(null);
+    setCopying(true);
+    const result = await copiarBolsillosMesAnterior(monthId);
+    setCopying(false);
+    if ('error' in result) {
+      setCopyError(result.error);
+    }
+  };
+
   const handleDelete = async (id: string) => {
     setDeleteError(null);
     setDeletingId(id);
@@ -61,6 +75,25 @@ const BolsillosClient: FC<BolsillosClientProps> = ({ bolsillos, monthId, categor
       {deleteError && (
         <div className="rounded-lg bg-red-50 border border-red-100 px-4 py-3 text-sm text-red-700 mb-2">
           {deleteError}
+        </div>
+      )}
+
+      {/* Banner: copiar del ciclo anterior */}
+      {bolsillos.length === 0 && hayCicloAnteriorConBolsillos && (
+        <div className="bg-amber-50 border border-amber-100 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center gap-3 mb-2">
+          <div className="flex-1">
+            <p className="text-sm font-semibold text-amber-900">¿Quieres usar los mismos bolsillos del ciclo anterior?</p>
+            <p className="text-xs text-amber-700 mt-0.5">Copiará los nombres y montos asignados. Puedes ajustarlos después.</p>
+          </div>
+          {copyError && <p className="text-xs text-red-600">{copyError}</p>}
+          <button
+            type="button"
+            onClick={handleCopiarAnterior}
+            disabled={copying}
+            className="flex-shrink-0 px-4 py-2 rounded-lg bg-amber-500 text-white text-sm font-medium hover:bg-amber-600 disabled:opacity-60 transition-colors"
+          >
+            {copying ? 'Copiando...' : 'Copiar del ciclo anterior'}
+          </button>
         </div>
       )}
 
@@ -106,6 +139,7 @@ const BolsillosClient: FC<BolsillosClientProps> = ({ bolsillos, monthId, categor
               onDelete={handleDelete}
               onSpend={handleOpenGasto}
               deleting={deletingId === pocket.id}
+              currency={currency}
             />
           ))}
 

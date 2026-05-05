@@ -3,7 +3,7 @@
 import { type FC, useState } from 'react';
 import CategoriaModal from '@/components/features/CategoriaModal';
 import TelegramVinculacion from '@/components/features/TelegramVinculacion';
-import { actualizarPerfil, eliminarCategoria } from '@/app/(protected)/app/configuracion/actions';
+import { actualizarPerfil, eliminarCategoria, actualizarDiaCorte, actualizarMoneda } from '@/app/(protected)/app/configuracion/actions';
 
 interface Categoria {
   id: string;
@@ -15,6 +15,8 @@ interface ConfiguracionClientProps {
   fullName: string;
   categorias: Categoria[];
   telegramChatId?: number | null;
+  billingCycleDay: number | null;
+  currency: string;
 }
 
 type Tab = 'perfil' | 'categorias' | 'telegram';
@@ -23,6 +25,8 @@ const ConfiguracionClient: FC<ConfiguracionClientProps> = ({
   fullName: initialName,
   categorias,
   telegramChatId = null,
+  billingCycleDay: initialCycleDay,
+  currency: initialCurrency,
 }) => {
   const [tab, setTab] = useState<Tab>('perfil');
 
@@ -30,6 +34,16 @@ const ConfiguracionClient: FC<ConfiguracionClientProps> = ({
   const [name, setName] = useState(initialName);
   const [savingPerfil, setSavingPerfil] = useState(false);
   const [perfilMsg, setPerfilMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  // Día de corte
+  const [cycleDay, setCycleDay] = useState<string>(initialCycleDay ? String(initialCycleDay) : '1');
+  const [savingCycle, setSavingCycle] = useState(false);
+  const [cycleMsg, setCycleMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  // Moneda
+  const [currency, setCurrency] = useState(initialCurrency);
+  const [savingCurrency, setSavingCurrency] = useState(false);
+  const [currencyMsg, setCurrencyMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   // Categorías
   const [catModalOpen, setCatModalOpen] = useState(false);
@@ -47,6 +61,37 @@ const ConfiguracionClient: FC<ConfiguracionClientProps> = ({
       setPerfilMsg({ ok: false, text: result.error });
     } else {
       setPerfilMsg({ ok: true, text: 'Nombre actualizado correctamente.' });
+    }
+  };
+
+  const handleSaveCycleDay = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCycleMsg(null);
+    const day = parseInt(cycleDay, 10);
+    if (isNaN(day) || day < 1 || day > 28) {
+      setCycleMsg({ ok: false, text: 'Ingresa un día entre 1 y 28.' });
+      return;
+    }
+    setSavingCycle(true);
+    const result = await actualizarDiaCorte({ billing_cycle_day: day });
+    setSavingCycle(false);
+    if ('error' in result) {
+      setCycleMsg({ ok: false, text: result.error });
+    } else {
+      setCycleMsg({ ok: true, text: 'Día de corte actualizado. Afectará el ciclo a partir del próximo análisis.' });
+    }
+  };
+
+  const handleSaveCurrency = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCurrencyMsg(null);
+    setSavingCurrency(true);
+    const result = await actualizarMoneda({ currency });
+    setSavingCurrency(false);
+    if ('error' in result) {
+      setCurrencyMsg({ ok: false, text: result.error });
+    } else {
+      setCurrencyMsg({ ok: true, text: 'Moneda actualizada correctamente.' });
     }
   };
 
@@ -86,36 +131,97 @@ const ConfiguracionClient: FC<ConfiguracionClientProps> = ({
 
       {/* Tab: Perfil */}
       {tab === 'perfil' && (
-        <form onSubmit={handleSavePerfil} className="max-w-sm space-y-5 pt-2">
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor="cfg-name" className="text-sm font-medium text-gray-700">
-              Nombre completo
-            </label>
-            <input
-              id="cfg-name"
-              type="text"
-              maxLength={80}
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              required
-            />
-          </div>
+        <div className="max-w-sm space-y-6 pt-2">
+          {/* Nombre */}
+          <form onSubmit={handleSavePerfil} className="space-y-4">
+            <h3 className="text-sm font-semibold text-gray-700 border-b border-gray-100 pb-2">Nombre</h3>
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="cfg-name" className="text-sm font-medium text-gray-700">
+                Nombre completo
+              </label>
+              <input
+                id="cfg-name"
+                type="text"
+                maxLength={80}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                required
+              />
+            </div>
+            {perfilMsg && (
+              <p className={`text-sm rounded-lg px-3 py-2 ${perfilMsg.ok ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-red-50 text-red-600 border border-red-100'}`}>
+                {perfilMsg.text}
+              </p>
+            )}
+            <button type="submit" disabled={savingPerfil}
+              className="px-5 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-60 transition-colors">
+              {savingPerfil ? 'Guardando...' : 'Guardar nombre'}
+            </button>
+          </form>
 
-          {perfilMsg && (
-            <p className={`text-sm rounded-lg px-3 py-2 ${perfilMsg.ok ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-red-50 text-red-600 border border-red-100'}`}>
-              {perfilMsg.text}
-            </p>
-          )}
+          {/* Día de corte */}
+          <form onSubmit={handleSaveCycleDay} className="space-y-4">
+            <h3 className="text-sm font-semibold text-gray-700 border-b border-gray-100 pb-2">Ciclo de presupuesto</h3>
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="cfg-cycle" className="text-sm font-medium text-gray-700">
+                Día de corte <span className="text-gray-400 font-normal">(1 – 28)</span>
+              </label>
+              <input
+                id="cfg-cycle"
+                type="number"
+                min={1}
+                max={28}
+                value={cycleDay}
+                onChange={(e) => setCycleDay(e.target.value)}
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                required
+              />
+              <p className="text-xs text-gray-400">El nuevo ciclo comenzará cada mes en este día. Máximo 28 para cubrir todos los meses.</p>
+            </div>
+            {cycleMsg && (
+              <p className={`text-sm rounded-lg px-3 py-2 ${cycleMsg.ok ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-red-50 text-red-600 border border-red-100'}`}>
+                {cycleMsg.text}
+              </p>
+            )}
+            <button type="submit" disabled={savingCycle}
+              className="px-5 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-60 transition-colors">
+              {savingCycle ? 'Guardando...' : 'Guardar día de corte'}
+            </button>
+          </form>
 
-          <button
-            type="submit"
-            disabled={savingPerfil}
-            className="px-5 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-60 transition-colors"
-          >
-            {savingPerfil ? 'Guardando...' : 'Guardar cambios'}
-          </button>
-        </form>
+          {/* Moneda */}
+          <form onSubmit={handleSaveCurrency} className="space-y-4">
+            <h3 className="text-sm font-semibold text-gray-700 border-b border-gray-100 pb-2">Moneda</h3>
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="cfg-currency" className="text-sm font-medium text-gray-700">Moneda</label>
+              <select
+                id="cfg-currency"
+                value={currency}
+                onChange={(e) => setCurrency(e.target.value)}
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+              >
+                <option value="COP">COP — Peso colombiano</option>
+                <option value="USD">USD — Dólar estadounidense</option>
+                <option value="EUR">EUR — Euro</option>
+                <option value="MXN">MXN — Peso mexicano</option>
+                <option value="ARS">ARS — Peso argentino</option>
+                <option value="PEN">PEN — Sol peruano</option>
+                <option value="CLP">CLP — Peso chileno</option>
+                <option value="BRL">BRL — Real brasileño</option>
+              </select>
+            </div>
+            {currencyMsg && (
+              <p className={`text-sm rounded-lg px-3 py-2 ${currencyMsg.ok ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-red-50 text-red-600 border border-red-100'}`}>
+                {currencyMsg.text}
+              </p>
+            )}
+            <button type="submit" disabled={savingCurrency}
+              className="px-5 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-60 transition-colors">
+              {savingCurrency ? 'Guardando...' : 'Guardar moneda'}
+            </button>
+          </form>
+        </div>
       )}
 
       {/* Tab: Categorías */}

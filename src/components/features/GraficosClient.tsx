@@ -14,6 +14,7 @@ import {
   CartesianGrid,
   Legend,
 } from 'recharts';
+import { formatCurrency } from '@/lib/utils';
 
 interface GastoCategoria {
   id: string;
@@ -34,44 +35,13 @@ interface GraficosClientProps {
   disponible: number;
   gastosPorCategoria: GastoCategoria[];
   bolsillos: BolsilloGrafica[];
+  currency?: string;
 }
-
-const formatCOP = (value: number) =>
-  new Intl.NumberFormat('es-CO', {
-    style: 'currency',
-    currency: 'COP',
-    maximumFractionDigits: 0,
-  }).format(value);
 
 const formatAbrev = (value: number) => {
   if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
   if (value >= 1_000) return `$${(value / 1_000).toFixed(0)}K`;
   return `$${value}`;
-};
-
-const CustomPieTooltip = ({ active, payload }: { active?: boolean; payload?: { name: string; value: number; payload: GastoCategoria }[] }) => {
-  if (!active || !payload?.length) return null;
-  const item = payload[0];
-  return (
-    <div className="bg-white border border-gray-200 rounded-lg shadow-sm px-3 py-2 text-xs">
-      <p className="font-semibold text-gray-800">{item.name}</p>
-      <p className="text-gray-500 mt-0.5">{formatCOP(item.value)}</p>
-    </div>
-  );
-};
-
-const CustomBarTooltip = ({ active, payload, label }: { active?: boolean; payload?: { name: string; value: number; color: string }[]; label?: string }) => {
-  if (!active || !payload?.length) return null;
-  return (
-    <div className="bg-white border border-gray-200 rounded-lg shadow-sm px-3 py-2 text-xs">
-      <p className="font-semibold text-gray-800 mb-1">{label}</p>
-      {payload.map((p) => (
-        <p key={p.name} style={{ color: p.color }}>
-          {p.name}: {formatCOP(p.value)}
-        </p>
-      ))}
-    </div>
-  );
 };
 
 const GraficosClient: FC<GraficosClientProps> = ({
@@ -80,8 +50,35 @@ const GraficosClient: FC<GraficosClientProps> = ({
   disponible,
   gastosPorCategoria,
   bolsillos,
+  currency = 'COP',
 }) => {
   const pctGastos = totalIncome > 0 ? Math.round((gastosTotales / totalIncome) * 100) : 0;
+  const fmt = (v: number) => formatCurrency(v, currency);
+
+  const CustomPieTooltip = ({ active, payload }: { active?: boolean; payload?: { name: string; value: number; payload: GastoCategoria }[] }) => {
+    if (!active || !payload?.length) return null;
+    const item = payload[0];
+    return (
+      <div className="bg-white border border-gray-200 rounded-lg shadow-sm px-3 py-2 text-xs">
+        <p className="font-semibold text-gray-800">{item.name}</p>
+        <p className="text-gray-500 mt-0.5">{fmt(item.value)}</p>
+      </div>
+    );
+  };
+
+  const CustomBarTooltip = ({ active, payload, label }: { active?: boolean; payload?: { name: string; value: number; color: string }[]; label?: string }) => {
+    if (!active || !payload?.length) return null;
+    return (
+      <div className="bg-white border border-gray-200 rounded-lg shadow-sm px-3 py-2 text-xs">
+        <p className="font-semibold text-gray-800 mb-1">{label}</p>
+        {payload.map((p) => (
+          <p key={p.name} style={{ color: p.color }}>
+            {p.name}: {fmt(p.value)}
+          </p>
+        ))}
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-8">
@@ -89,11 +86,11 @@ const GraficosClient: FC<GraficosClientProps> = ({
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-white rounded-xl border border-gray-100 p-5">
           <p className="text-xs text-gray-400 mb-1">Ingresos</p>
-          <p className="text-xl font-bold text-gray-900">{formatCOP(totalIncome)}</p>
+          <p className="text-xl font-bold text-gray-900">{fmt(totalIncome)}</p>
         </div>
         <div className="bg-white rounded-xl border border-gray-100 p-5">
           <p className="text-xs text-gray-400 mb-1">Gastos</p>
-          <p className="text-xl font-bold text-gray-900">{formatCOP(gastosTotales)}</p>
+          <p className="text-xl font-bold text-gray-900">{fmt(gastosTotales)}</p>
           {totalIncome > 0 && (
             <p className="text-xs text-gray-400 mt-0.5">{pctGastos}% de los ingresos</p>
           )}
@@ -101,7 +98,7 @@ const GraficosClient: FC<GraficosClientProps> = ({
         <div className="bg-white rounded-xl border border-gray-100 p-5">
           <p className="text-xs text-gray-400 mb-1">Disponible</p>
           <p className={`text-xl font-bold ${disponible < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
-            {formatCOP(disponible)}
+            {fmt(disponible)}
           </p>
           <p className="text-xs text-gray-400 mt-0.5">Libre tras gastos y bolsillos</p>
         </div>

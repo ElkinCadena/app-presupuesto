@@ -1,5 +1,22 @@
+'use client';
+
+import { useState } from 'react';
+
+export interface MonthBudgetData {
+  monthId: string;
+  totalIncome: number;
+  gastosTotales: number;
+  totalReservadoBolsillos: number;
+  disponible: number;
+  bolsillos: { id: string; name: string; availableAmount: number }[];
+  fuentesIniciales: { label: string; amount: number }[];
+}
+
 /**
- * Hook para obtener los datos del mes activo del usuario.
- * PENDING: implementar con Supabase query una vez el schema esté creado.
+ * Hook que envuelve los datos del ciclo activo recibidos como initialData
+ * desde el Server Component. Expone los valores listos para usar en la UI.
  */
-export { };
+export function useMonthBudget(initialData: MonthBudgetData): MonthBudgetData {
+  const [data] = useState<MonthBudgetData>(initialData);
+  return data;
+}

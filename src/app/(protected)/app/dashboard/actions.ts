@@ -4,13 +4,14 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import type { Database } from '@/lib/supabase/types';
+import { getCurrentCycle, getPreviousCycle } from '@/lib/utils';
 
 type ExpenseCategoryRow = Database['public']['Tables']['expense_categories']['Row'];
 type ExpenseRow = Database['public']['Tables']['expenses']['Row'];
 
 type MonthRow = Database['public']['Tables']['months']['Row'];
 type IncomeSourceRow = Database['public']['Tables']['income_sources']['Row'];
-type MesActivoData = MonthRow & { income_sources: IncomeSourceRow[] };
+type MesActivoData = MonthRow & { income_sources: IncomeSourceRow[]; billing_cycle_day: number; currency: string };
 
 // ── Obtener o crear el mes activo ─────────────────────────────────────────
 
@@ -21,9 +22,19 @@ export async function obtenerMesActivo(): Promise<
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: 'No autorizado' };
 
+  // Leer día de corte y moneda del perfil
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('billing_cycle_day, currency')
+    .eq('id', user.id)
+    .single();
+
+  const cycleDay = profile?.billing_cycle_day ?? 1;
+  const currency = (profile as { currency?: string | null } | null)?.currency ?? 'COP';
+
+  // Calcular ciclo activo según el día de corte
   const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth() + 1;
+  const { year, month } = getCurrentCycle(now, cycleDay);
 
   const { data, error } = await supabase
     .from('months')
@@ -56,7 +67,7 @@ export async function obtenerMesActivo(): Promise<
 
   if (sourcesError) return { error: sourcesError.message };
 
-  return { data: { ...monthRecord, income_sources: income_sources ?? [] } as MesActivoData };
+  return { data: { ...monthRecord, income_sources: income_sources ?? [], billing_cycle_day: cycleDay, currency } as MesActivoData };
 }
 
 // ── Registrar fuentes de ingreso del mes ──────────────────────────────────
@@ -255,4 +266,95 @@ export async function eliminarGasto(
   revalidatePath('/app/dashboard');
   revalidatePath('/app/gastos');
   return { data: true };
+}
+
+// ── Copiar ingresos del ciclo anterior ────────────────────────────────────
+
+export async function copiarIngresosMesAnterior(
+  monthId: string
+): Promise<{ error: string } | { data: { total_income: number } }> {
+  const supabase = await createServerSupabaseClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: 'No autorizado' };
+
+  // Verificar ownership del mes destino
+  const { data: mesActual } = await supabase
+    .from('months')
+    .select('id, year, month')
+    .eq('id', monthId)
+    .eq('user_id', user.id)
+    .single();
+  if (!mesActual) return { error: 'Mes no encontrado' };
+
+  // Mes anterior
+  const prev = getPreviousCycle(mesActual.year, mesActual.month);
+
+  const { data: mesAnterior } = await supabase
+    .from('months')
+    .select('id, total_income')
+    .eq('user_id', user.id)
+    .eq('year', prev.year)
+    .eq('month', prev.month)
+    .single();
+  if (!mesAnterior) return { error: 'No hay un ciclo anterior con datos.' };
+
+  // Leer fuentes del mes anterior
+  const { data: fuentes, error: fuentesError } = await supabase
+    .from('income_sources')
+    .select('label, amount')
+    .eq('month_id', mesAnterior.id);
+  if (fuentesError) return { error: fuentesError.message };
+  if (!fuentes || fuentes.length === 0) return { error: 'El ciclo anterior no tiene ingresos registrados.' };
+
+  // Borrar fuentes actuales y reemplazar
+  const { error: deleteError } = await supabase
+    .from('income_sources')
+    .delete()
+    .eq('month_id', monthId);
+  if (deleteError) return { error: deleteError.message };
+
+  const { error: insertError } = await supabase
+    .from('income_sources')
+    .insert(fuentes.map((f) => ({ month_id: monthId, label: f.label, amount: f.amount })));
+  if (insertError) return { error: insertError.message };
+
+  const totalIncome = fuentes.reduce((sum, f) => sum + f.amount, 0);
+
+  const { error: updateError } = await supabase
+    .from('months')
+    .update({ total_income: totalIncome })
+    .eq('id', monthId);
+  if (updateError) return { error: updateError.message };
+
+  revalidatePath('/app/dashboard');
+  return { data: { total_income: totalIncome } };
+}
+
+// ── Verificar si existe un ciclo anterior con ingresos ───────────────────
+
+export async function tieneCicloAnteriorConIngresos(
+  currentYear: number,
+  currentMonth: number
+): Promise<boolean> {
+  const supabase = await createServerSupabaseClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return false;
+
+  const prev = getPreviousCycle(currentYear, currentMonth);
+
+  const { data: mesAnterior } = await supabase
+    .from('months')
+    .select('id')
+    .eq('user_id', user.id)
+    .eq('year', prev.year)
+    .eq('month', prev.month)
+    .single();
+  if (!mesAnterior) return false;
+
+  const { count } = await supabase
+    .from('income_sources')
+    .select('id', { count: 'exact', head: true })
+    .eq('month_id', mesAnterior.id);
+
+  return (count ?? 0) > 0;
 }

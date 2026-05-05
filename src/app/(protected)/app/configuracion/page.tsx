@@ -22,7 +22,7 @@ export default async function ConfiguracionPage() {
     obtenerCategorias(),
   ]);
 
-  const perfil = 'data' in perfilResult ? perfilResult.data : { full_name: null, telegram_chat_id: null };
+  const perfil = 'data' in perfilResult ? perfilResult.data : { full_name: null, telegram_chat_id: null, billing_cycle_day: null, currency: 'COP' };
   const categorias = 'data' in categoriasResult ? categoriasResult.data : [];
 
   return (
@@ -38,6 +38,8 @@ export default async function ConfiguracionPage() {
         fullName={perfil.full_name ?? ''}
         categorias={categorias.map((c) => ({ id: c.id, name: c.name, color: c.color }))}
         telegramChatId={perfil.telegram_chat_id ?? null}
+        billingCycleDay={perfil.billing_cycle_day}
+        currency={perfil.currency}
       />
     </div>
   );

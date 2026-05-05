@@ -3,24 +3,19 @@
 import { type FC } from 'react';
 import Link from 'next/link';
 import type { MesResumen } from '@/app/(protected)/app/historial/actions';
+import { formatCurrency } from '@/lib/utils';
 
 interface HistorialClientProps {
   meses: MesResumen[];
+  currency?: string;
 }
-
-const formatCOP = (value: number) =>
-  new Intl.NumberFormat('es-CO', {
-    style: 'currency',
-    currency: 'COP',
-    maximumFractionDigits: 0,
-  }).format(value);
 
 const MESES_ES = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
 ];
 
-const HistorialClient: FC<HistorialClientProps> = ({ meses }) => {
+const HistorialClient: FC<HistorialClientProps> = ({ meses, currency = 'COP' }) => {
   if (meses.length === 0) {
     return (
       <div className="bg-white rounded-xl border border-gray-100 p-12 text-center flex flex-col items-center gap-4">
@@ -86,17 +81,17 @@ const HistorialClient: FC<HistorialClientProps> = ({ meses }) => {
             <div className="grid grid-cols-2 gap-2 text-xs">
               <div>
                 <p className="text-gray-400">Ingresos</p>
-                <p className="font-semibold text-gray-900 mt-0.5">{formatCOP(mes.totalIncome)}</p>
+                <p className="font-semibold text-gray-900 mt-0.5">{formatCurrency(mes.totalIncome, currency)}</p>
               </div>
               <div>
                 <p className="text-gray-400">Gastos</p>
-                <p className="font-semibold text-gray-900 mt-0.5">{formatCOP(mes.totalExpenses)}</p>
+                <p className="font-semibold text-gray-900 mt-0.5">{formatCurrency(mes.totalExpenses, currency)}</p>
               </div>
             </div>
 
             {/* Balance */}
             <div className={`text-xs font-semibold ${deficit ? 'text-red-600' : 'text-emerald-600'}`}>
-              Balance: {formatCOP(mes.balance)}
+              Balance: {formatCurrency(mes.balance, currency)}
             </div>
           </Link>
         );

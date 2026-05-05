@@ -4,7 +4,9 @@ import type { Metadata } from 'next';
 import type { Database } from '@/lib/supabase/types';
 import { obtenerMesActivo, inicializarCategorias, obtenerCategorias } from '@/app/(protected)/app/dashboard/actions';
 import { obtenerBolsillos } from '@/app/(protected)/app/bolsillos/actions';
+import { getCycleLabel } from '@/lib/utils';
 import GastosClient, { type GastoResumen } from '@/components/features/GastosClient';
+import RealtimeRefresher from '@/components/features/RealtimeRefresher';
 
 type ExpenseRow = Database['public']['Tables']['expenses']['Row'];
 type ExpenseCategoryRow = Database['public']['Tables']['expense_categories']['Row'];
@@ -66,16 +68,14 @@ export default async function GastosPage() {
   }));
 
   const gastosTotales = gastos.reduce((sum, g) => sum + g.amount, 0);
-
-  const now = new Date();
-  const monthName = now.toLocaleString('es-CO', { month: 'long' });
+  const cycleLabel = getCycleLabel(mes.year, mes.month, mes.billing_cycle_day);
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <div>
         <p className="text-sm text-gray-400 font-medium uppercase tracking-widest mb-1">
-          {monthName} {now.getFullYear()}
+          {cycleLabel}
         </p>
         <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Gastos</h1>
         <p className="text-gray-500 mt-1 text-sm">
@@ -89,7 +89,9 @@ export default async function GastosPage() {
         categorias={categorias.map((c) => ({ id: c.id, name: c.name, color: c.color }))}
         bolsillos={bolsillos.map((p) => ({ id: p.id, name: p.name, availableAmount: p.availableAmount }))}
         gastosTotales={gastosTotales}
+        currency={mes.currency}
       />
+      <RealtimeRefresher userId={user.id} />
     </div>
   );
 }

@@ -2,6 +2,7 @@
 
 import { type FC } from 'react';
 import type { Pocket } from '@/types';
+import { formatCurrency } from '@/lib/utils';
 
 interface PocketCardProps {
   pocket: Pocket;
@@ -9,16 +10,10 @@ interface PocketCardProps {
   onDelete: (id: string) => void;
   onSpend: (pocket: Pocket) => void;
   deleting?: boolean;
+  currency?: string;
 }
 
-const formatCOP = (value: number) =>
-  new Intl.NumberFormat('es-CO', {
-    style: 'currency',
-    currency: 'COP',
-    maximumFractionDigits: 0,
-  }).format(value);
-
-const PocketCard: FC<PocketCardProps> = ({ pocket, onEdit, onDelete, onSpend, deleting = false }) => {
+const PocketCard: FC<PocketCardProps> = ({ pocket, onEdit, onDelete, onSpend, deleting = false, currency = 'COP' }) => {
   const pct =
     pocket.assignedAmount > 0
       ? Math.min(100, Math.round((pocket.usedAmount / pocket.assignedAmount) * 100))
@@ -106,7 +101,7 @@ const PocketCard: FC<PocketCardProps> = ({ pocket, onEdit, onDelete, onSpend, de
         <div className="flex flex-col">
           <span className="text-xs text-gray-400">Asignado</span>
           <span className="text-sm font-semibold text-gray-900">
-            {formatCOP(pocket.assignedAmount)}
+            {formatCurrency(pocket.assignedAmount, currency)}
           </span>
         </div>
         <div className="flex flex-col items-end">
@@ -116,7 +111,7 @@ const PocketCard: FC<PocketCardProps> = ({ pocket, onEdit, onDelete, onSpend, de
               pocket.availableAmount < 0 ? 'text-red-600' : 'text-emerald-600'
             }`}
           >
-            {formatCOP(pocket.availableAmount)}
+            {formatCurrency(pocket.availableAmount, currency)}
           </span>
         </div>
       </div>

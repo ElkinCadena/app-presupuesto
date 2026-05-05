@@ -1,5 +1,7 @@
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import type { Database } from '@/lib/supabase/types';
+import RealtimeRefresher from '@/components/features/RealtimeRefresher';
+import { formatCurrency } from '@/lib/utils';
 
 type IncomeSourceRow = Database['public']['Tables']['income_sources']['Row'];
 type ExpenseRow = Database['public']['Tables']['expenses']['Row'];
@@ -10,7 +12,8 @@ type GastoConCategoria = ExpenseRow & {
 };
 import { redirect } from 'next/navigation';
 import type { Metadata } from 'next';
-import { obtenerMesActivo, inicializarCategorias, obtenerCategorias } from './actions';
+import { obtenerMesActivo, inicializarCategorias, obtenerCategorias, tieneCicloAnteriorConIngresos } from './actions';
+import { getCycleLabel } from '@/lib/utils';
 import { obtenerBolsillos } from '@/app/(protected)/app/bolsillos/actions';
 import DashboardClient from '@/components/features/DashboardClient';
 
@@ -42,11 +45,6 @@ export default async function DashboardPage() {
   }
 
   const mes = mesResult.data;
-
-  const now = new Date();
-  const monthName = now.toLocaleString('es-CO', { month: 'long' });
-  const year = now.getFullYear();
-  const day = now.getDate();
 
   // Inicializar y obtener categorías
   await inicializarCategorias();
@@ -82,18 +80,23 @@ export default async function DashboardPage() {
   // Dinero reservado en bolsillos pero aún no gastado
   const totalReservadoBolsillos = bolsillos.reduce((sum, p) => sum + p.availableAmount, 0);
 
+  // Verificar si hay ciclo anterior con ingresos para ofrecer copia
+  const hayCicloAnteriorConIngresos = mes.total_income === 0
+    ? await tieneCicloAnteriorConIngresos(mes.year, mes.month)
+    : false;
+
   return (
     <div className="space-y-8">
       {/* Header */}
       <div>
         <p className="text-sm text-gray-400 font-medium uppercase tracking-widest mb-1">
-          {day} {monthName} {year}
+          {getCycleLabel(mes.year, mes.month, mes.billing_cycle_day)}
         </p>
         <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">
           Hola, {profile.full_name}
         </h1>
         <p className="text-gray-500 mt-1 text-sm">
-          Aquí tienes el resumen de tu mes actual.
+          Aquí tienes el resumen de tu ciclo actual.
         </p>
       </div>
 
@@ -106,6 +109,8 @@ export default async function DashboardPage() {
         categorias={categorias.map((c) => ({ id: c.id, name: c.name, color: c.color }))}
         bolsillos={bolsillos.map((p) => ({ id: p.id, name: p.name, availableAmount: p.availableAmount }))}
         totalReservadoBolsillos={totalReservadoBolsillos}
+        hayCicloAnteriorConIngresos={hayCicloAnteriorConIngresos}
+        currency={mes.currency}
       />
 
       {/* Sección bolsillos */}
@@ -143,7 +148,7 @@ export default async function DashboardPage() {
                   <p className={`text-xs font-semibold ${
                     pocket.availableAmount < 0 ? 'text-red-600' : 'text-emerald-600'
                   }`}>
-                    {new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(pocket.availableAmount)} disponible
+                    {formatCurrency(pocket.availableAmount, mes.currency)} disponible
                   </p>
                 </div>
               );
@@ -181,13 +186,14 @@ export default async function DashboardPage() {
                   </p>
                 </div>
                 <span className="text-sm font-semibold text-gray-900 flex-shrink-0">
-                  {new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(gasto.amount)}
+                  {formatCurrency(gasto.amount, mes.currency)}
                 </span>
               </div>
             ))}
           </div>
         )}
       </div>
+      <RealtimeRefresher userId={user.id} />
     </div>
   );
 }

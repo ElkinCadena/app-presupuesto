@@ -4,6 +4,7 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import type { Pocket } from '@/types';
+import { getPreviousCycle } from '@/lib/utils';
 
 // ── Schemas ───────────────────────────────────────────────────────────────
 
@@ -217,4 +218,96 @@ export async function eliminarBolsillo(
   revalidatePath('/app/dashboard');
   revalidatePath('/app/gastos');
   return { data: true };
+}
+
+// ── Copiar bolsillos del ciclo anterior ───────────────────────────────────
+
+export async function copiarBolsillosMesAnterior(
+  monthId: string
+): Promise<{ error: string } | { data: Pocket[] }> {
+  const supabase = await createServerSupabaseClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: 'No autorizado' };
+
+  // Verificar ownership del mes destino
+  const { data: mesActual } = await supabase
+    .from('months')
+    .select('id, year, month')
+    .eq('id', monthId)
+    .eq('user_id', user.id)
+    .single();
+  if (!mesActual) return { error: 'Mes no encontrado' };
+
+  const prev = getPreviousCycle(mesActual.year, mesActual.month);
+
+  const { data: mesAnterior } = await supabase
+    .from('months')
+    .select('id')
+    .eq('user_id', user.id)
+    .eq('year', prev.year)
+    .eq('month', prev.month)
+    .single();
+  if (!mesAnterior) return { error: 'No hay un ciclo anterior.' };
+
+  const { data: bolsillosAnteriores, error: fetchError } = await supabase
+    .from('pockets')
+    .select('name, assigned_amount')
+    .eq('month_id', mesAnterior.id);
+  if (fetchError) return { error: fetchError.message };
+  if (!bolsillosAnteriores || bolsillosAnteriores.length === 0) {
+    return { error: 'El ciclo anterior no tiene bolsillos.' };
+  }
+
+  const { data: nuevos, error: insertError } = await supabase
+    .from('pockets')
+    .insert(
+      bolsillosAnteriores.map((b) => ({
+        month_id: monthId,
+        name: b.name,
+        assigned_amount: b.assigned_amount,
+      }))
+    )
+    .select();
+  if (insertError) return { error: insertError.message };
+
+  const data: Pocket[] = (nuevos ?? []).map((p) => ({
+    id: p.id,
+    name: p.name,
+    assignedAmount: p.assigned_amount,
+    usedAmount: 0,
+    availableAmount: p.assigned_amount,
+  }));
+
+  revalidatePath('/app/bolsillos');
+  revalidatePath('/app/dashboard');
+  return { data };
+}
+
+// ── Verificar si existe un ciclo anterior con bolsillos ───────────────────
+
+export async function tieneCicloAnteriorConBolsillos(
+  currentYear: number,
+  currentMonth: number
+): Promise<boolean> {
+  const supabase = await createServerSupabaseClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return false;
+
+  const prev = getPreviousCycle(currentYear, currentMonth);
+
+  const { data: mesAnterior } = await supabase
+    .from('months')
+    .select('id')
+    .eq('user_id', user.id)
+    .eq('year', prev.year)
+    .eq('month', prev.month)
+    .single();
+  if (!mesAnterior) return false;
+
+  const { count } = await supabase
+    .from('pockets')
+    .select('id', { count: 'exact', head: true })
+    .eq('month_id', mesAnterior.id);
+
+  return (count ?? 0) > 0;
 }

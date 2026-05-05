@@ -124,7 +124,7 @@ export async function eliminarCategoria(
 // ── Obtener el perfil ────────────────────────────────────────────────────────
 
 export async function obtenerPerfil(): Promise<
-  { error: string } | { data: { full_name: string | null; telegram_chat_id: number | null } }
+  { error: string } | { data: { full_name: string | null; telegram_chat_id: number | null; billing_cycle_day: number | null; currency: string } }
 > {
   const supabase = await createServerSupabaseClient();
   const {
@@ -134,12 +134,19 @@ export async function obtenerPerfil(): Promise<
 
   const { data, error } = await supabase
     .from('profiles')
-    .select('full_name, telegram_chat_id')
+    .select('full_name, telegram_chat_id, billing_cycle_day, currency')
     .eq('id', user.id)
     .single();
 
   if (error) return { error: error.message };
-  return { data: { full_name: data?.full_name ?? null, telegram_chat_id: data?.telegram_chat_id ?? null } };
+  return {
+    data: {
+      full_name: data?.full_name ?? null,
+      telegram_chat_id: data?.telegram_chat_id ?? null,
+      billing_cycle_day: data?.billing_cycle_day ?? null,
+      currency: data?.currency ?? 'COP',
+    },
+  };
 }
 
 // ── Telegram — Generar token de vinculación ───────────────────────────────
@@ -222,4 +229,70 @@ export async function verificarVinculacionTelegram(): Promise<
 
   if (error) return { error: error.message };
   return { data: { vinculado: data?.telegram_chat_id !== null } };
+}
+
+// ── Actualizar día de corte del ciclo ───────────────────────────────────
+
+const diaCorteSchema = z.object({
+  billing_cycle_day: z
+    .number()
+    .int()
+    .min(1, 'El día debe ser entre 1 y 28')
+    .max(28, 'Usa un día entre 1 y 28 para que funcione en todos los meses'),
+});
+
+export async function actualizarDiaCorte(
+  input: z.infer<typeof diaCorteSchema>
+): Promise<{ error: string } | { data: true }> {
+  const parsed = diaCorteSchema.safeParse(input);
+  if (!parsed.success) return { error: parsed.error.issues[0].message };
+
+  const supabase = await createServerSupabaseClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: 'No autorizado' };
+
+  const { error } = await supabase
+    .from('profiles')
+    .update({ billing_cycle_day: parsed.data.billing_cycle_day })
+    .eq('id', user.id);
+
+  if (error) return { error: error.message };
+
+  revalidatePath('/app/configuracion');
+  revalidatePath('/app/dashboard');
+  return { data: true };
+}
+
+// ── Actualizar moneda ───────────────────────────────────────────────────
+
+const monedaSchema = z.object({
+  currency: z.string().min(3).max(3),
+});
+
+export async function actualizarMoneda(
+  input: z.infer<typeof monedaSchema>
+): Promise<{ error: string } | { data: true }> {
+  const parsed = monedaSchema.safeParse(input);
+  if (!parsed.success) return { error: parsed.error.issues[0].message };
+
+  const supabase = await createServerSupabaseClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: 'No autorizado' };
+
+  const { error } = await supabase
+    .from('profiles')
+    .update({ currency: parsed.data.currency })
+    .eq('id', user.id);
+
+  if (error) return { error: error.message };
+
+  revalidatePath('/app/configuracion');
+  revalidatePath('/app/dashboard');
+  revalidatePath('/app/gastos');
+  revalidatePath('/app/bolsillos');
+  return { data: true };
 }

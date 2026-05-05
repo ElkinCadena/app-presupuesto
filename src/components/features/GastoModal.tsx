@@ -20,6 +20,8 @@ interface GastoModalProps {
   categorias: Categoria[];
   bolsillos?: BolsilloResumen[];
   defaultPocketId?: string;
+  defaultAmount?: number;
+  defaultDescription?: string;
   onClose: () => void;
 }
 
@@ -35,11 +37,11 @@ const parseMiles = (val: string): number => {
   return digits ? Number(digits) : 0;
 };
 
-const GastoModal: FC<GastoModalProps> = ({ monthId, categorias, bolsillos = [], defaultPocketId, onClose }) => {
+const GastoModal: FC<GastoModalProps> = ({ monthId, categorias, bolsillos = [], defaultPocketId, defaultAmount, defaultDescription, onClose }) => {
   const [categoryId, setCategoryId] = useState<string>(categorias[0]?.id ?? '');
   const [pocketId, setPocketId] = useState<string>(defaultPocketId ?? '');
-  const [amount, setAmount] = useState('');
-  const [description, setDescription] = useState('');
+  const [amount, setAmount] = useState(defaultAmount ? formatMiles(String(defaultAmount)) : '');
+  const [description, setDescription] = useState(defaultDescription ?? '');
   const [date, setDate] = useState(today());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

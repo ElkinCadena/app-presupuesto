@@ -3,6 +3,8 @@
 import { type FC, useState } from 'react';
 import IngresosModal from '@/components/features/IngresosModal';
 import GastoModal from '@/components/features/GastoModal';
+import { copiarIngresosMesAnterior } from '@/app/(protected)/app/dashboard/actions';
+import { formatCurrency } from '@/lib/utils';
 
 interface Categoria {
   id: string;
@@ -24,10 +26,11 @@ interface DashboardClientProps {
   categorias: Categoria[];
   bolsillos: BolsilloResumen[];
   totalReservadoBolsillos: number;
+  hayCicloAnteriorConIngresos?: boolean;
+  currency?: string;
 }
 
-const formatCOP = (value: number) =>
-  new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(value);
+// formatCOP removed — use formatCurrency from @/lib/utils
 
 const DashboardClient: FC<DashboardClientProps> = ({
   monthId,
@@ -37,10 +40,22 @@ const DashboardClient: FC<DashboardClientProps> = ({
   categorias,
   bolsillos,
   totalReservadoBolsillos,
+  hayCicloAnteriorConIngresos,
+  currency = 'COP',
 }) => {
   const [modalIngresosOpen, setModalIngresosOpen] = useState(false);
   const [modalGastoOpen, setModalGastoOpen] = useState(false);
+  const [copying, setCopying] = useState(false);
+  const [copyError, setCopyError] = useState<string | null>(null);
   const disponible = totalIncome - gastosTotales - totalReservadoBolsillos;
+
+  async function handleCopiarIngresos() {
+    setCopying(true);
+    setCopyError(null);
+    const res = await copiarIngresosMesAnterior(monthId);
+    if ('error' in res) setCopyError(res.error);
+    setCopying(false);
+  }
 
   return (
     <>
@@ -50,16 +65,29 @@ const DashboardClient: FC<DashboardClientProps> = ({
           <div className="flex-1">
             <p className="font-semibold text-blue-900 text-sm">Empieza registrando tus ingresos</p>
             <p className="text-blue-600 text-xs mt-0.5">
-              Define cuánto dinero tienes disponible este mes para comenzar a distribuirlo.
+              Define cuánto dinero tienes disponible este ciclo para comenzar a distribuirlo.
             </p>
+            {copyError && <p className="text-red-600 text-xs mt-1">{copyError}</p>}
           </div>
-          <button
-            type="button"
-            onClick={() => setModalIngresosOpen(true)}
-            className="flex-shrink-0 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors"
-          >
-            Registrar ingresos
-          </button>
+          <div className="flex flex-col sm:flex-row gap-2 flex-shrink-0">
+            {hayCicloAnteriorConIngresos && (
+              <button
+                type="button"
+                onClick={handleCopiarIngresos}
+                disabled={copying}
+                className="px-4 py-2 rounded-lg border border-blue-300 bg-white text-blue-700 text-sm font-medium hover:bg-blue-50 transition-colors disabled:opacity-50"
+              >
+                {copying ? 'Copiando...' : 'Copiar del ciclo anterior'}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setModalIngresosOpen(true)}
+              className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors"
+            >
+              Registrar ingresos
+            </button>
+          </div>
         </div>
       )}
 
@@ -67,7 +95,7 @@ const DashboardClient: FC<DashboardClientProps> = ({
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         <SummaryCard
           label="Ingresos del mes"
-          value={totalIncome > 0 ? formatCOP(totalIncome) : '$0'}
+          value={totalIncome > 0 ? formatCurrency(totalIncome, currency) : '$0'}
           description={totalIncome > 0 ? `${fuentesIniciales.length} fuente${fuentesIniciales.length !== 1 ? 's' : ''}` : 'Sin ingresos registrados'}
           accent="blue"
           actionLabel={totalIncome > 0 ? 'Editar' : undefined}
@@ -81,7 +109,7 @@ const DashboardClient: FC<DashboardClientProps> = ({
         />
         <SummaryCard
           label="Gastos registrados"
-          value={gastosTotales > 0 ? formatCOP(gastosTotales) : '$0'}
+          value={gastosTotales > 0 ? formatCurrency(gastosTotales, currency) : '$0'}
           description="Sin gastos este mes"
           accent="red"
           actionLabel="+ Agregar gasto"
@@ -95,7 +123,7 @@ const DashboardClient: FC<DashboardClientProps> = ({
         />
         <SummaryCard
           label="Disponible"
-          value={totalIncome > 0 ? formatCOP(disponible) : '$0'}
+          value={totalIncome > 0 ? formatCurrency(disponible, currency) : '$0'}
           description={totalReservadoBolsillos > 0 ? 'Libre tras gastos y bolsillos' : 'Ingresos menos gastos'}
           accent={disponible < 0 ? 'red' : 'green'}
           icon={

@@ -26,20 +26,16 @@ export interface GastoResumen {
   pocketName: string | null;
 }
 
+import { formatCurrency } from '@/lib/utils';
+
 interface GastosClientProps {
   gastos: GastoResumen[];
   monthId: string;
   categorias: Categoria[];
   bolsillos: BolsilloResumen[];
   gastosTotales: number;
+  currency?: string;
 }
-
-const formatCOP = (value: number) =>
-  new Intl.NumberFormat('es-CO', {
-    style: 'currency',
-    currency: 'COP',
-    maximumFractionDigits: 0,
-  }).format(value);
 
 const GastosClient: FC<GastosClientProps> = ({
   gastos,
@@ -47,6 +43,7 @@ const GastosClient: FC<GastosClientProps> = ({
   categorias,
   bolsillos,
   gastosTotales,
+  currency = 'COP',
 }) => {
   const [modalOpen, setModalOpen] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -86,7 +83,7 @@ const GastosClient: FC<GastosClientProps> = ({
         <div>
           <p className="text-sm text-gray-500">
             {gastos.length} gasto{gastos.length !== 1 ? 's' : ''} ·{' '}
-            <span className="font-semibold text-gray-900">{formatCOP(gastosTotales)}</span>
+            <span className="font-semibold text-gray-900">{formatCurrency(gastosTotales, currency)}</span>
           </p>
         </div>
         <button
@@ -187,7 +184,7 @@ const GastosClient: FC<GastosClientProps> = ({
 
                     {/* Monto */}
                     <span className="text-sm font-semibold text-gray-900 flex-shrink-0">
-                      {formatCOP(gasto.amount)}
+                      {formatCurrency(gasto.amount, currency)}
                     </span>
 
                     {/* Botón eliminar */}

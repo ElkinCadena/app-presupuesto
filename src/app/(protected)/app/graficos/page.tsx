@@ -4,6 +4,7 @@ import type { Metadata } from 'next';
 import type { Database } from '@/lib/supabase/types';
 import { obtenerMesActivo, obtenerCategorias } from '@/app/(protected)/app/dashboard/actions';
 import { obtenerBolsillos } from '@/app/(protected)/app/bolsillos/actions';
+import { getCycleLabel } from '@/lib/utils';
 import GraficosClient from '@/components/features/GraficosClient';
 
 type ExpenseRow = Database['public']['Tables']['expenses']['Row'];
@@ -58,16 +59,14 @@ export default async function GraficosPage() {
   const gastosTotales = gastos.reduce((sum, g) => sum + g.amount, 0);
   const totalReservado = bolsillos.reduce((sum, p) => sum + p.availableAmount, 0);
   const disponible = mes.total_income - gastosTotales - totalReservado;
-
-  const now = new Date();
-  const monthName = now.toLocaleString('es-CO', { month: 'long' });
+  const cycleLabel = getCycleLabel(mes.year, mes.month, mes.billing_cycle_day);
 
   return (
     <div className="space-y-8">
       {/* Header */}
       <div>
         <p className="text-sm text-gray-400 font-medium uppercase tracking-widest mb-1">
-          {monthName} {now.getFullYear()}
+          {cycleLabel}
         </p>
         <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Gráficas</h1>
         <p className="text-gray-500 mt-1 text-sm">
@@ -85,6 +84,7 @@ export default async function GraficosPage() {
           assignedAmount: p.assignedAmount,
           usedAmount: p.usedAmount,
         }))}
+        currency={mes.currency}
       />
     </div>
   );
