@@ -23,16 +23,23 @@ type SessionStep =
   | 'enter_expense_detail'
   | 'select_source'
   | 'enter_new_source_name'
-  | 'enter_income_amount';
+  | 'enter_income_amount'
+  | 'quick_select_category';
+
+
+const SESSION_TTL_MS = 30 * 60 * 1000; 
 
 interface TelegramSession {
   flow: 'expense' | 'income';
   step: SessionStep;
+  expires_at: number;           // ← NUEVO
   data: {
     category_id?: string | null;
     category_name?: string;
     income_source_label?: string;
     month_id?: string;
+    quick_amount?: number;
+    quick_description?: string | null;
   };
 }
 
@@ -92,8 +99,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ ok: true });
   }
 
+   const textLower = text.toLowerCase();
   // /start o /menu → mostrar menú principal (cancela cualquier flujo activo)
-  if (text === '/start' || text === '/menu') {
+  if (text === '/start' || text === '/menu' || textLower === 'menu' || textLower === 'menú' || textLower === 'cancelar') {
     const supabase = getServiceClient();
     if (supabase) {
       const { data: prof } = await supabase
@@ -146,13 +154,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ ok: true });
   }
 
-  const session = profile.telegram_session as TelegramSession | null;
+  const rawSession = profile.telegram_session as TelegramSession | null;
+  const session = rawSession && rawSession.expires_at > Date.now() ? rawSession : null;
 
-  // Si hay sesión activa, continuar el flujo
-  if (session) {
-    return handleSessionText(token, chatId, supabase, profile.id, profile.billing_cycle_day ?? 1, session, text);
+  if (rawSession && !session) {
+    await clearSession(supabase, profile.id);
   }
 
+  const quickParsed = parseExpenseMessage(text);
+  if (quickParsed) {
+    return startQuickExpenseFlow(token, chatId, supabase, profile.id, quickParsed.amount, quickParsed.description);
+  }
   // Sin sesión → mostrar menú
   await sendMainMenu(token, chatId, '🤖 Usa el menú para elegir una acción:');
   return NextResponse.json({ ok: true });
@@ -165,6 +177,52 @@ async function handleStart(token: string, chatId: number, isFirst: boolean): Pro
     ? '👋 ¡Hola! Soy tu asistente de presupuesto personal.\n\nPara vincular tu cuenta genera un código en *Configuración* de la app y envíalo:\n/vincular CÓDIGO\n\nSi ya vinculaste tu cuenta, elige una opción:'
     : '🏠 Menú principal:';
   await sendMainMenu(token, chatId, greeting);
+  return NextResponse.json({ ok: true });
+}
+
+async function startQuickExpenseFlow(
+  token: string,
+  chatId: number,
+  supabase: ReturnType<typeof getServiceClient>,
+  profileId: string,
+  amount: number,
+  description: string | null
+): Promise<NextResponse> {
+  const { data: categories } = await supabase!
+    .from('expense_categories')
+    .select('id, name')
+    .eq('user_id', profileId)
+    .order('name');
+
+  const catButtons: InlineKeyboardButton[][] = [];
+  if (categories && categories.length > 0) {
+    for (let i = 0; i < categories.length; i += 2) {
+      const row: InlineKeyboardButton[] = [];
+      const cat1 = categories[i];
+      row.push({ text: cat1.name, callback_data: `cat:${cat1.id}:${cat1.name.slice(0, 20)}` });
+      if (categories[i + 1]) {
+        const cat2 = categories[i + 1];
+        row.push({ text: cat2.name, callback_data: `cat:${cat2.id}:${cat2.name.slice(0, 20)}` });
+      }
+      catButtons.push(row);
+    }
+  }
+  catButtons.push([{ text: 'Sin categoría', callback_data: 'cat:null:Sin categoría' }]);
+
+  await setSession(supabase!, profileId, {
+    flow: 'expense',
+    step: 'quick_select_category',
+    data: { quick_amount: amount, quick_description: description },
+  });
+
+  const fmt = `$${amount.toLocaleString('es-CO')}`;
+  const descText = description ? ` — ${description}` : '';
+  await sendMessageWithKeyboard(
+    token, chatId,
+    `💸 *${fmt}${descText}*\n\n¿A qué categoría pertenece este gasto?`,
+    { inline_keyboard: catButtons },
+    { parse_mode: 'Markdown' }
+  );
   return NextResponse.json({ ok: true });
 }
 
@@ -234,7 +292,7 @@ async function handleCallbackQuery(token: string, cq: TelegramCallbackQuery): Pr
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('id, billing_cycle_day')
+    .select('id, billing_cycle_day, telegram_session')
     .eq('telegram_chat_id', chatId)
     .single();
 
@@ -259,6 +317,10 @@ async function handleCallbackQuery(token: string, cq: TelegramCallbackQuery): Pr
 
   // ── Flujo: selección de categoría ────────────────────────────────────
   if (data.startsWith('cat:')) {
+    const session = profile.telegram_session as TelegramSession | null;
+    if (session?.step === 'quick_select_category') {
+      return handleQuickCategorySelected(token, chatId, supabase, profile.id, profile.billing_cycle_day ?? 1, session, data);
+    }
     return handleCategorySelected(token, chatId, supabase, profile.id, data);
   }
 
@@ -336,6 +398,64 @@ async function handleCategorySelected(
     `✅ Categoría: *${categoryName}*\n\nAhora ingresa el concepto y monto:\n_Ejemplo: Almuerzo 15000_`,
     { parse_mode: 'Markdown' }
   );
+  return NextResponse.json({ ok: true });
+}
+
+async function handleQuickCategorySelected(
+  token: string,
+  chatId: number,
+  supabase: ReturnType<typeof getServiceClient>,
+  profileId: string,
+  cycleDay: number,
+  session: TelegramSession,
+  data: string
+): Promise<NextResponse> {
+  const parts = data.split(':');
+  const rawId = parts[1];
+  const categoryName = parts.slice(2).join(':');
+  const categoryId = rawId === 'null' ? null : rawId;
+
+  const amount = session.data.quick_amount;
+  const description = session.data.quick_description ?? null;
+
+  if (!amount) {
+    await sendMessage(token, chatId, '❌ Sesión expirada. Intenta registrar el gasto de nuevo.');
+    await clearSession(supabase!, profileId);
+    return NextResponse.json({ ok: true });
+  }
+
+  const monthId = await getOrCreateMonth(supabase!, profileId, cycleDay);
+  if (!monthId) {
+    await sendMessage(token, chatId, '❌ No se pudo obtener el mes activo. Intenta más tarde.');
+    await clearSession(supabase!, profileId);
+    return NextResponse.json({ ok: true });
+  }
+
+  const safeDesc = description
+    ? description.replace(/\s+/g, ' ').trim().slice(0, 120)
+    : null;
+  const today = formatDateLocal(new Date());
+
+  const { error } = await supabase!.from('expenses').insert({
+    month_id: monthId,
+    amount,
+    description: safeDesc,
+    date: today,
+    category_id: categoryId,
+    pocket_id: null,
+  });
+
+  await clearSession(supabase!, profileId);
+
+  if (error) {
+    await sendMessage(token, chatId, '❌ No se pudo registrar el gasto. Intenta más tarde.');
+  } else {
+    const fmt = `$${amount.toLocaleString('es-CO')}`;
+    const desc = safeDesc ? ` — ${safeDesc}` : '';
+    const cat = categoryName !== 'Sin categoría' ? `\n📂 ${categoryName}` : '';
+    await sendMessage(token, chatId, `✅ *Gasto registrado*\n${fmt}${desc}${cat}`, { parse_mode: 'Markdown' });
+    await sendMainMenu(token, chatId, '¿Qué más deseas hacer?');   // ← NUEVO
+  }
   return NextResponse.json({ ok: true });
 }
 
@@ -456,6 +576,7 @@ async function handleStatusQuery(
     `${emoji} Disponible: ${fmt(disponible)}`,
     { parse_mode: 'Markdown' }
   );
+  await sendMainMenu(token, chatId, '¿Qué más deseas hacer?');  // ← aquí
 
   return NextResponse.json({ ok: true });
 }
@@ -510,6 +631,7 @@ async function handleSessionText(
       const desc = safeDesc ? ` — ${safeDesc}` : '';
       const cat = data.category_name && data.category_name !== 'Sin categoría' ? `\n📂 ${data.category_name}` : '';
       await sendMessage(token, chatId, `✅ *Gasto registrado*\n${fmt}${desc}${cat}`, { parse_mode: 'Markdown' });
+      await sendMainMenu(token, chatId, '¿Qué más deseas hacer?');   // ← NUEVO
     }
     return NextResponse.json({ ok: true });
   }
@@ -592,6 +714,7 @@ async function handleSessionText(
     const fmt = `$${amount.toLocaleString('es-CO')}`;
     const action = existing ? 'actualizado' : 'registrado';
     await sendMessage(token, chatId, `✅ *Ingreso ${action}*\n${fmt} — ${label}`, { parse_mode: 'Markdown' });
+    await sendMainMenu(token, chatId, '¿Qué más deseas hacer?');   // ← NUEVO
     return NextResponse.json({ ok: true });
   }
 
@@ -640,13 +763,15 @@ async function getOrCreateMonth(
 async function setSession(
   supabase: NonNullable<ReturnType<typeof getServiceClient>>,
   profileId: string,
-  session: TelegramSession
+  session: Omit<TelegramSession, 'expires_at'>
 ): Promise<void> {
+  const fullSession: TelegramSession = { ...session, expires_at: Date.now() + SESSION_TTL_MS };
   await supabase
     .from('profiles')
-    .update({ telegram_session: session as unknown as Database['public']['Tables']['profiles']['Update']['telegram_session'] })
+    .update({ telegram_session: fullSession as unknown as Database['public']['Tables']['profiles']['Update']['telegram_session'] })
     .eq('id', profileId);
 }
+
 
 async function clearSession(
   supabase: NonNullable<ReturnType<typeof getServiceClient>>,
