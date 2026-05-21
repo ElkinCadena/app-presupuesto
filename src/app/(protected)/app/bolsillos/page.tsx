@@ -93,6 +93,7 @@ export default async function BolsillosPage() {
           bolsillos={bolsillos}
           monthId={mes.id}
           categorias={categorias.map((c) => ({ id: c.id, name: c.name, color: c.color }))}
+          fuentesIngreso={mes.income_sources.map((f) => ({ id: f.id, label: f.label }))}
           hayCicloAnteriorConBolsillos={hayAnterior}
           currency={currency}
         />

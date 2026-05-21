@@ -21,11 +21,17 @@ interface BolsilloResumen {
   availableAmount: number;
 }
 
+interface FuenteIngreso {
+  id: string;
+  label: string;
+}
+
 interface RecordatoriosClientProps {
   recordatorios: ReminderRow[];
   monthId: string;
   categorias: Categoria[];
   bolsillos: BolsilloResumen[];
+  fuentesIngreso: FuenteIngreso[];
   currency?: string;
 }
 
@@ -37,7 +43,7 @@ const diasHastaProximo = (dayOfMonth: number): number => {
   return daysInMonth - currentDay + dayOfMonth;
 };
 
-const RecordatoriosClient: FC<RecordatoriosClientProps> = ({ recordatorios, monthId, categorias, bolsillos, currency = 'COP' }) => {
+const RecordatoriosClient: FC<RecordatoriosClientProps> = ({ recordatorios, monthId, categorias, bolsillos, fuentesIngreso, currency = 'COP' }) => {
   const [modalOpen, setModalOpen] = useState(false);
   const [editando, setEditando] = useState<ReminderRow | undefined>(undefined);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -215,6 +221,7 @@ const RecordatoriosClient: FC<RecordatoriosClientProps> = ({ recordatorios, mont
           monthId={monthId}
           categorias={categorias}
           bolsillos={bolsillos}
+          fuentesIngreso={fuentesIngreso}
           defaultAmount={pagarRecordatorio.amount ?? undefined}
           defaultDescription={pagarRecordatorio.name}
           onClose={() => setPagarRecordatorio(null)}

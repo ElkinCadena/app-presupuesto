@@ -59,6 +59,7 @@ export default async function RecordatoriosPage() {
         monthId={mes?.id ?? ''}
         categorias={categorias.map((c) => ({ id: c.id, name: c.name, color: c.color }))}
         bolsillos={resolvedBolsillos.map((p) => ({ id: p.id, name: p.name, availableAmount: p.availableAmount }))}
+        fuentesIngreso={(mes?.income_sources ?? []).map((f) => ({ id: f.id, label: f.label }))}
         currency={mes?.currency ?? 'COP'}
       />
     </div>

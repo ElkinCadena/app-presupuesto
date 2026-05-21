@@ -18,10 +18,16 @@ interface BolsilloResumen {
   availableAmount: number;
 }
 
+interface FuenteIngreso {
+  id: string;
+  label: string;
+}
+
 interface DashboardClientProps {
   monthId: string;
   totalIncome: number;
   fuentesIniciales: { label: string; amount: number }[];
+  fuentesIngreso: FuenteIngreso[];
   gastosTotales: number;
   categorias: Categoria[];
   bolsillos: BolsilloResumen[];
@@ -36,6 +42,7 @@ const DashboardClient: FC<DashboardClientProps> = ({
   monthId,
   totalIncome,
   fuentesIniciales,
+  fuentesIngreso,
   gastosTotales,
   categorias,
   bolsillos,
@@ -150,6 +157,7 @@ const DashboardClient: FC<DashboardClientProps> = ({
           monthId={monthId}
           categorias={categorias}
           bolsillos={bolsillos}
+          fuentesIngreso={fuentesIngreso}
           onClose={() => setModalGastoOpen(false)}
         />
       )}

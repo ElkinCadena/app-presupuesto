@@ -13,15 +13,21 @@ interface Categoria {
   color: string;
 }
 
+interface FuenteIngreso {
+  id: string;
+  label: string;
+}
+
 interface BolsillosClientProps {
   bolsillos: Pocket[];
   monthId: string;
   categorias: Categoria[];
+  fuentesIngreso: FuenteIngreso[];
   hayCicloAnteriorConBolsillos?: boolean;
   currency?: string;
 }
 
-const BolsillosClient: FC<BolsillosClientProps> = ({ bolsillos, monthId, categorias, hayCicloAnteriorConBolsillos = false, currency = 'COP' }) => {
+const BolsillosClient: FC<BolsillosClientProps> = ({ bolsillos, monthId, categorias, fuentesIngreso, hayCicloAnteriorConBolsillos = false, currency = 'COP' }) => {
   const [modalOpen, setModalOpen] = useState(false);
   const [bolsilloEditando, setBolsilloEditando] = useState<Pocket | undefined>(undefined);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -180,6 +186,7 @@ const BolsillosClient: FC<BolsillosClientProps> = ({ bolsillos, monthId, categor
           monthId={monthId}
           categorias={categorias}
           bolsillos={bolsillos.map((p) => ({ id: p.id, name: p.name, availableAmount: p.availableAmount }))}
+          fuentesIngreso={fuentesIngreso}
           defaultPocketId={gastoModalPocket.id}
           onClose={() => setGastoModalPocket(null)}
         />

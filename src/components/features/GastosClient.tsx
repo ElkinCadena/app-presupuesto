@@ -16,6 +16,11 @@ interface BolsilloResumen {
   availableAmount: number;
 }
 
+interface FuenteIngreso {
+  id: string;
+  label: string;
+}
+
 export interface GastoResumen {
   id: string;
   amount: number;
@@ -33,6 +38,7 @@ interface GastosClientProps {
   monthId: string;
   categorias: Categoria[];
   bolsillos: BolsilloResumen[];
+  fuentesIngreso: FuenteIngreso[];
   gastosTotales: number;
   currency?: string;
 }
@@ -42,6 +48,7 @@ const GastosClient: FC<GastosClientProps> = ({
   monthId,
   categorias,
   bolsillos,
+  fuentesIngreso,
   gastosTotales,
   currency = 'COP',
 }) => {
@@ -242,6 +249,7 @@ const GastosClient: FC<GastosClientProps> = ({
           monthId={monthId}
           categorias={categorias}
           bolsillos={bolsillos}
+          fuentesIngreso={fuentesIngreso}
           onClose={() => setModalOpen(false)}
         />
       )}

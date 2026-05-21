@@ -49,6 +49,7 @@ export type Database = {
           date: string
           description: string | null
           id: string
+          income_source_id: string | null
           month_id: string
           pocket_id: string | null
         }
@@ -59,6 +60,7 @@ export type Database = {
           date?: string
           description?: string | null
           id?: string
+          income_source_id?: string | null
           month_id: string
           pocket_id?: string | null
         }
@@ -69,6 +71,7 @@ export type Database = {
           date?: string
           description?: string | null
           id?: string
+          income_source_id?: string | null
           month_id?: string
           pocket_id?: string | null
         }
@@ -78,6 +81,13 @@ export type Database = {
             columns: ["category_id"]
             isOneToOne: false
             referencedRelation: "expense_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "expenses_income_source_id_fkey"
+            columns: ["income_source_id"]
+            isOneToOne: false
+            referencedRelation: "income_sources"
             referencedColumns: ["id"]
           },
           {

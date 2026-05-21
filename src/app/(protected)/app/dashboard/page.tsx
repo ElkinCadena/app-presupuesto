@@ -105,6 +105,7 @@ export default async function DashboardPage() {
         monthId={mes.id}
         totalIncome={mes.total_income}
         fuentesIniciales={mes.income_sources.map((f: IncomeSourceRow) => ({ label: f.label, amount: f.amount }))}
+        fuentesIngreso={mes.income_sources.map((f: IncomeSourceRow) => ({ id: f.id, label: f.label }))}
         gastosTotales={gastosTotales}
         categorias={categorias.map((c) => ({ id: c.id, name: c.name, color: c.color }))}
         bolsillos={bolsillos.map((p) => ({ id: p.id, name: p.name, availableAmount: p.availableAmount }))}

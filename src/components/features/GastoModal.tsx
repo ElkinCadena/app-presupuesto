@@ -15,10 +15,16 @@ interface BolsilloResumen {
   availableAmount: number;
 }
 
+interface FuenteIngreso {
+  id: string;
+  label: string;
+}
+
 interface GastoModalProps {
   monthId: string;
   categorias: Categoria[];
   bolsillos?: BolsilloResumen[];
+  fuentesIngreso?: FuenteIngreso[];
   defaultPocketId?: string;
   defaultAmount?: number;
   defaultDescription?: string;
@@ -37,9 +43,11 @@ const parseMiles = (val: string): number => {
   return digits ? Number(digits) : 0;
 };
 
-const GastoModal: FC<GastoModalProps> = ({ monthId, categorias, bolsillos = [], defaultPocketId, defaultAmount, defaultDescription, onClose }) => {
+const GastoModal: FC<GastoModalProps> = ({ monthId, categorias, bolsillos = [], fuentesIngreso = [], defaultPocketId, defaultAmount, defaultDescription, onClose }) => {
   const [categoryId, setCategoryId] = useState<string>(categorias[0]?.id ?? '');
   const [pocketId, setPocketId] = useState<string>(defaultPocketId ?? '');
+  // Si hay exactamente 1 fuente, pre-seleccionarla automáticamente
+  const [incomeSourceId, setIncomeSourceId] = useState<string>(fuentesIngreso.length === 1 ? fuentesIngreso[0].id : '');
   const [amount, setAmount] = useState(defaultAmount ? formatMiles(String(defaultAmount)) : '');
   const [description, setDescription] = useState(defaultDescription ?? '');
   const [date, setDate] = useState(today());
@@ -72,6 +80,7 @@ const GastoModal: FC<GastoModalProps> = ({ monthId, categorias, bolsillos = [], 
       month_id: monthId,
       category_id: categoryId || null,
       pocket_id: pocketId || null,
+      income_source_id: incomeSourceId || null,
       amount: parsedAmount,
       description: description.trim() || undefined,
       date,
@@ -220,6 +229,28 @@ const GastoModal: FC<GastoModalProps> = ({ monthId, categorias, bolsillos = [], 
               />
             </div>
           </div>
+
+          {/* Fuente de ingreso (solo si hay 2 o más fuentes) */}
+          {fuentesIngreso.length > 1 && (
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="fuente-ingreso" className="text-sm font-medium text-gray-700">
+                Fuente de ingreso <span className="text-gray-400 font-normal">(opcional)</span>
+              </label>
+              <select
+                id="fuente-ingreso"
+                value={incomeSourceId}
+                onChange={(e) => setIncomeSourceId(e.target.value)}
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+              >
+                <option value="">Sin asignar</option>
+                {fuentesIngreso.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* Bolsillo (opcional / bloqueado si viene pre-seleccionado) */}
           {defaultPocketId ? (
