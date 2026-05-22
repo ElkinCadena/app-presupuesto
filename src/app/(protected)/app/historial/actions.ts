@@ -217,3 +217,43 @@ export async function obtenerDatosExportPDF(
 ): Promise<{ error: string } | { data: MesDetalle }> {
   return obtenerDetalleMes(year, month);
 }
+
+// ── Tipos e acción extendida para exportar PDF estructurado ───────────────
+
+export interface IngresoSource {
+  id: string;
+  label: string;
+  amount: number;
+}
+
+export interface MesDetalleCompleto extends MesDetalle {
+  ingresosSources: IngresoSource[];
+}
+
+export async function obtenerDatosExportCompleto(
+  year: number,
+  month: number
+): Promise<{ error: string } | { data: MesDetalleCompleto }> {
+  const mesResult = await obtenerDetalleMes(year, month);
+  if ('error' in mesResult) return mesResult;
+
+  const supabase = await createServerSupabaseClient();
+  const { data: incomes, error: incomesError } = await supabase
+    .from('income_sources')
+    .select('id, label, amount')
+    .eq('month_id', mesResult.data.id)
+    .order('created_at', { ascending: true });
+
+  if (incomesError) return { error: incomesError.message };
+
+  return {
+    data: {
+      ...mesResult.data,
+      ingresosSources: (incomes ?? []).map((i) => ({
+        id: i.id,
+        label: i.label,
+        amount: i.amount,
+      })),
+    },
+  };
+}

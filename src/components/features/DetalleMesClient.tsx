@@ -1,9 +1,9 @@
 'use client';
 
-import { type FC, useState } from 'react';
+import { type FC } from 'react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 import type { MesDetalle } from '@/app/(protected)/app/historial/actions';
-import { exportarMesExcel, obtenerDatosExportPDF } from '@/app/(protected)/app/historial/actions';
+import { ExportButtons } from '@/components/features/ExportButtons';
 import { formatCurrency } from '@/lib/utils';
 
 interface DetalleMesClientProps {
@@ -34,61 +34,6 @@ const DetalleMesClient: FC<DetalleMesClientProps> = ({ mes, currency = 'COP' }) 
     );
   };
 
-  const [exportingExcel, setExportingExcel] = useState(false);
-  const [exportingPDF, setExportingPDF] = useState(false);
-  const [exportError, setExportError] = useState<string | null>(null);
-
-  const handleExportExcel = async () => {
-    setExportingExcel(true);
-    setExportError(null);
-    const result = await exportarMesExcel(mes.year, mes.month);
-    if ('error' in result) {
-      setExportError(result.error);
-    } else {
-      const bytes = Uint8Array.from(atob(result.data), (c) => c.charCodeAt(0));
-      const blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = result.filename;
-      a.click();
-      URL.revokeObjectURL(url);
-    }
-    setExportingExcel(false);
-  };
-
-  const handleExportPDF = async () => {
-    setExportingPDF(true);
-    setExportError(null);
-    try {
-      const result = await obtenerDatosExportPDF(mes.year, mes.month);
-      if ('error' in result) throw new Error(result.error);
-      const d = result.data;
-      const monthLabel = new Date(d.year, d.month - 1, 1).toLocaleString('es-CO', { month: 'long', year: 'numeric' });
-      const fmtPdf = (v: number) => formatCurrency(v, currency);
-
-      const { default: jsPDF } = await import('jspdf');
-      const doc = new jsPDF({ unit: 'mm', format: 'a4' });
-      const lm = 15; let y = 20;
-      doc.setFontSize(16); doc.setFont('helvetica', 'bold');
-      doc.text(`Presupuesto — ${monthLabel}`, lm, y); y += 10;
-      doc.setFontSize(10); doc.setFont('helvetica', 'normal');
-      doc.text(`Ingresos: ${fmtPdf(d.totalIncome)}   Gastos: ${fmtPdf(d.totalExpenses)}   Balance: ${fmtPdf(d.balance)}`, lm, y); y += 10;
-      doc.setFont('helvetica', 'bold');
-      doc.text('Gastos detallados', lm, y); y += 7;
-      doc.setFont('helvetica', 'normal');
-      for (const g of d.gastos) {
-        if (y > 270) { doc.addPage(); y = 20; }
-        const line = `${g.date}  ${g.categoria?.name ?? 'Sin cat.'}  ${g.description ?? ''}  ${fmtPdf(g.amount)}`;
-        doc.text(line, lm, y, { maxWidth: 180 }); y += 6;
-      }
-      doc.save(`presupuesto-${d.year}-${String(d.month).padStart(2, '0')}.pdf`);
-    } catch (err) {
-      setExportError(err instanceof Error ? err.message : 'Error al generar PDF');
-    }
-    setExportingPDF(false);
-  };
-
   // Agrupar gastos por fecha
   const grouped = mes.gastos.reduce<Record<string, typeof mes.gastos>>((acc, g) => {
     if (!acc[g.date]) acc[g.date] = [];
@@ -100,31 +45,8 @@ const DetalleMesClient: FC<DetalleMesClientProps> = ({ mes, currency = 'COP' }) 
   return (
     <div className="space-y-8">
       {/* Export toolbar */}
-      <div className="flex items-center gap-2 justify-end">
-        {exportError && <span className="text-xs text-red-600 mr-auto">{exportError}</span>}
-        <button
-          type="button"
-          onClick={handleExportExcel}
-          disabled={exportingExcel}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition-colors"
-        >
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
-            <line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 18 15 15"/>
-          </svg>
-          {exportingExcel ? 'Generando...' : 'Excel'}
-        </button>
-        <button
-          type="button"
-          onClick={handleExportPDF}
-          disabled={exportingPDF}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition-colors"
-        >
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
-          </svg>
-          {exportingPDF ? 'Generando...' : 'PDF'}
-        </button>
+      <div className="flex items-center justify-end">
+        <ExportButtons month={mes.month} year={mes.year} currency={currency} />
       </div>
 
       {/* Summary cards */}
