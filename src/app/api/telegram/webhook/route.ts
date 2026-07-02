@@ -22,6 +22,7 @@ type SessionStep =
   | 'select_category'
   | 'enter_expense_detail'
   | 'select_income_source'
+  | 'select_pocket'
   | 'select_source'
   | 'enter_new_source_name'
   | 'enter_income_amount'
@@ -43,7 +44,7 @@ interface TelegramSession {
     month_id?: string;
     quick_amount?: number;
     quick_description?: string | null;
-    // datos pendientes para insertar tras seleccionar fuente
+    // datos pendientes para insertar tras seleccionar fuente / bolsillo
     pending_amount?: number;
     pending_description?: string | null;
   };
@@ -341,6 +342,11 @@ async function handleCallbackQuery(token: string, cq: TelegramCallbackQuery): Pr
     return handleIncomeSourceForExpense(token, chatId, supabase, profile.id, data);
   }
 
+  // ── Flujo: selección de bolsillo para un GASTO ────────────────────────
+  if (data.startsWith('pkt:')) {
+    return handlePocketSelected(token, chatId, supabase, profile.id, data);
+  }
+
   // ── Flujo: selección de fuente de ingreso ─────────────────────────────
   if (data.startsWith('src:')) {
     return handleSourceSelected(token, chatId, supabase, profile.id, data);
@@ -448,6 +454,10 @@ async function handleQuickCategorySelected(
     return NextResponse.json({ ok: true });
   }
 
+  const safeDesc = description
+    ? description.replace(/\s+/g, ' ').trim().slice(0, 120)
+    : null;
+
   // Verificar si hay múltiples fuentes de ingreso → pedir selección
   const { data: sources } = await supabase!
     .from('income_sources')
@@ -464,41 +474,23 @@ async function handleQuickCategorySelected(
         category_name: categoryName,
         month_id: monthId,
         pending_amount: amount,
-        pending_description: description,
+        pending_description: safeDesc,
       },
     });
     return sendIncomeSourceSelector(token, chatId, sources, 'isrc');
   }
 
-  // Solo 1 fuente (o ninguna) → registrar directamente
-  const autoSourceId = sources && sources.length === 1 ? sources[0].id : null;
-  const safeDesc = description
-    ? description.replace(/\s+/g, ' ').trim().slice(0, 120)
-    : null;
-  const today = formatDateLocal(new Date());
-
-  const { error } = await supabase!.from('expenses').insert({
-    month_id: monthId,
+  // Solo 1 fuente (o ninguna) → continuar con selección de bolsillo (si aplica)
+  const autoSource = sources && sources.length === 1 ? sources[0] : null;
+  return proceedToPocketOrInsert(token, chatId, supabase, profileId, {
+    monthId,
     amount,
     description: safeDesc,
-    date: today,
-    category_id: categoryId,
-    income_source_id: autoSourceId,
-    pocket_id: null,
+    categoryId,
+    categoryName,
+    incomeSourceId: autoSource?.id ?? null,
+    incomeSourceLabel: autoSource?.label ?? null,
   });
-
-  await clearSession(supabase!, profileId);
-
-  if (error) {
-    await sendMessage(token, chatId, '❌ No se pudo registrar el gasto. Intenta más tarde.');
-  } else {
-    const fmt = `$${amount.toLocaleString('es-CO')}`;
-    const desc = safeDesc ? ` — ${safeDesc}` : '';
-    const cat = categoryName !== 'Sin categoría' ? `\n📂 ${categoryName}` : '';
-    await sendMessage(token, chatId, `✅ *Gasto registrado*\n${fmt}${desc}${cat}`, { parse_mode: 'Markdown' });
-    await sendMainMenu(token, chatId, '¿Qué más deseas hacer?');   // ← NUEVO
-  }
-  return NextResponse.json({ ok: true });
 }
 
 // ── Flujo INGRESO — paso 1: listar fuentes ────────────────────────────────
@@ -676,32 +668,17 @@ async function handleSessionText(
       return sendIncomeSourceSelector(token, chatId, expSources, 'isrc');
     }
 
-    // Solo 1 fuente (o ninguna) → registrar directamente
-    const autoSourceId = expSources && expSources.length === 1 ? expSources[0].id : null;
-    const today = formatDateLocal(new Date());
-
-    const { error } = await supabase!.from('expenses').insert({
-      month_id: monthId,
+    // Solo 1 fuente (o ninguna) → continuar con selección de bolsillo (si aplica)
+    const autoSource = expSources && expSources.length === 1 ? expSources[0] : null;
+    return proceedToPocketOrInsert(token, chatId, supabase, profileId, {
+      monthId,
       amount: parsed.amount,
       description: safeDesc,
-      date: today,
-      category_id: data.category_id ?? null,
-      income_source_id: autoSourceId,
-      pocket_id: null,
+      categoryId: data.category_id ?? null,
+      categoryName: data.category_name,
+      incomeSourceId: autoSource?.id ?? null,
+      incomeSourceLabel: autoSource?.label ?? null,
     });
-
-    await clearSession(supabase!, profileId);
-
-    if (error) {
-      await sendMessage(token, chatId, '❌ No se pudo registrar el gasto. Intenta más tarde.');
-    } else {
-      const fmt = `$${parsed.amount.toLocaleString('es-CO')}`;
-      const desc = safeDesc ? ` — ${safeDesc}` : '';
-      const cat = data.category_name && data.category_name !== 'Sin categoría' ? `\n📂 ${data.category_name}` : '';
-      await sendMessage(token, chatId, `✅ *Gasto registrado*\n${fmt}${desc}${cat}`, { parse_mode: 'Markdown' });
-      await sendMainMenu(token, chatId, '¿Qué más deseas hacer?');   // ← NUEVO
-    }
-    return NextResponse.json({ ok: true });
   }
 
   // ── INCOME: ingresar nombre de nueva fuente ──────────────────────────
@@ -800,8 +777,10 @@ function sendIncomeSourceSelector(
   sources: { id: string; label: string }[],
   prefix: string
 ): Promise<NextResponse> {
+  // callback_data máx. 64 bytes: "isrc:" (5) + uuid (36) + ":" (1) = 42,
+  // dejamos 20 caracteres para el label (mismo margen que categorías/bolsillos).
   const srcButtons: InlineKeyboardButton[][] = sources.map((s) => ([
-    { text: s.label, callback_data: `${prefix}:${s.id}:${s.label.slice(0, 50)}` },
+    { text: s.label, callback_data: `${prefix}:${s.id}:${s.label.slice(0, 20)}` },
   ]));
   return sendMessageWithKeyboard(
     token, chatId,
@@ -821,6 +800,7 @@ async function handleIncomeSourceForExpense(
   // data = "isrc:{uuid}:{label}"
   const parts = data.split(':');
   const sourceId = parts[1];
+  const srcLabel = parts.slice(2).join(':');
 
   const { data: prof } = await supabase!
     .from('profiles')
@@ -843,15 +823,184 @@ async function handleIncomeSourceForExpense(
     return NextResponse.json({ ok: true });
   }
 
-  const today = formatDateLocal(new Date());
-  const { error } = await supabase!.from('expenses').insert({
-    month_id,
+  // Continuar con selección de bolsillo (si aplica) en vez de insertar directamente
+  return proceedToPocketOrInsert(token, chatId, supabase, profileId, {
+    monthId: month_id,
     amount: pending_amount,
     description: pending_description ?? null,
+    categoryId: category_id ?? null,
+    categoryName: category_name,
+    incomeSourceId: sourceId,
+    incomeSourceLabel: srcLabel,
+  });
+}
+
+// ── Seleccionar bolsillo para un gasto ────────────────────────────────────
+
+/**
+ * Revisa si el mes activo tiene bolsillos creados. Si tiene 1 o más,
+ * pide al usuario seleccionar uno (o "Sin bolsillo") antes de registrar
+ * el gasto. Si no tiene ninguno, registra el gasto directamente.
+ */
+async function proceedToPocketOrInsert(
+  token: string,
+  chatId: number,
+  supabase: ReturnType<typeof getServiceClient>,
+  profileId: string,
+  params: {
+    monthId: string;
+    amount: number;
+    description: string | null;
+    categoryId: string | null;
+    categoryName?: string;
+    incomeSourceId: string | null;
+    incomeSourceLabel?: string | null;
+  }
+): Promise<NextResponse> {
+  const { data: pockets } = await supabase!
+    .from('pockets')
+    .select('id, name')
+    .eq('month_id', params.monthId)
+    .order('name');
+
+  if (pockets && pockets.length > 0) {
+    await setSession(supabase!, profileId, {
+      flow: 'expense',
+      step: 'select_pocket',
+      data: {
+        category_id: params.categoryId,
+        category_name: params.categoryName,
+        month_id: params.monthId,
+        pending_amount: params.amount,
+        pending_description: params.description,
+        income_source_id: params.incomeSourceId,
+        income_source_label: params.incomeSourceLabel ?? undefined,
+      },
+    });
+    return sendPocketSelector(token, chatId, pockets);
+  }
+
+  // Sin bolsillos creados este mes → registrar directamente
+  return finalizeExpense(token, chatId, supabase, profileId, {
+    monthId: params.monthId,
+    amount: params.amount,
+    description: params.description,
+    categoryId: params.categoryId,
+    categoryName: params.categoryName,
+    incomeSourceId: params.incomeSourceId,
+    incomeSourceLabel: params.incomeSourceLabel,
+    pocketId: null,
+    pocketName: null,
+  });
+}
+
+function sendPocketSelector(
+  token: string,
+  chatId: number,
+  pockets: { id: string; name: string }[]
+): Promise<NextResponse> {
+  // callback_data máx. 64 bytes: "pkt:" (4) + uuid (36) + ":" (1) = 41,
+  // dejamos 20 caracteres para el nombre (mismo límite que las categorías).
+  const pktButtons: InlineKeyboardButton[][] = pockets.map((p) => ([
+    { text: p.name, callback_data: `pkt:${p.id}:${p.name.slice(0, 20)}` },
+  ]));
+  pktButtons.push([{ text: 'Sin bolsillo', callback_data: 'pkt:null:Sin bolsillo' }]);
+
+  return sendMessageWithKeyboard(
+    token, chatId,
+    '👛 ¿De qué bolsillo deseas descontar este gasto?',
+    { inline_keyboard: pktButtons },
+    { parse_mode: 'Markdown' }
+  ).then(() => NextResponse.json({ ok: true }));
+}
+
+async function handlePocketSelected(
+  token: string,
+  chatId: number,
+  supabase: ReturnType<typeof getServiceClient>,
+  profileId: string,
+  data: string
+): Promise<NextResponse> {
+  // data = "pkt:{uuid}:{name}" o "pkt:null:{name}"
+  const parts = data.split(':');
+  const rawId = parts[1];
+  const pocketName = parts.slice(2).join(':');
+  const pocketId = rawId === 'null' ? null : rawId;
+
+  const { data: prof } = await supabase!
+    .from('profiles')
+    .select('telegram_session')
+    .eq('id', profileId)
+    .single();
+
+  const session = prof?.telegram_session as TelegramSession | null;
+  if (!session || session.step !== 'select_pocket') {
+    await sendMessage(token, chatId, '❌ Sesión expirada. Usa /menu para empezar de nuevo.');
+    await clearSession(supabase!, profileId);
+    return NextResponse.json({ ok: true });
+  }
+
+  const {
+    category_id,
+    category_name,
+    month_id,
+    pending_amount,
+    pending_description,
+    income_source_id,
+    income_source_label,
+  } = session.data;
+
+  if (!month_id || !pending_amount) {
+    await sendMessage(token, chatId, '❌ Sesión expirada. Usa /menu para empezar de nuevo.');
+    await clearSession(supabase!, profileId);
+    return NextResponse.json({ ok: true });
+  }
+
+  return finalizeExpense(token, chatId, supabase, profileId, {
+    monthId: month_id,
+    amount: pending_amount,
+    description: pending_description ?? null,
+    categoryId: category_id ?? null,
+    categoryName: category_name,
+    incomeSourceId: income_source_id ?? null,
+    incomeSourceLabel: income_source_label ?? null,
+    pocketId,
+    pocketName: pocketId ? pocketName : null,
+  });
+}
+
+// ── Inserción final del gasto ─────────────────────────────────────────────
+
+/**
+ * Punto único de inserción de un gasto, usado tanto si hubo selección
+ * de bolsillo/fuente de ingreso como si se aplicaron valores por defecto.
+ */
+async function finalizeExpense(
+  token: string,
+  chatId: number,
+  supabase: ReturnType<typeof getServiceClient>,
+  profileId: string,
+  params: {
+    monthId: string;
+    amount: number;
+    description: string | null;
+    categoryId: string | null;
+    categoryName?: string;
+    incomeSourceId: string | null;
+    incomeSourceLabel?: string | null;
+    pocketId: string | null;
+    pocketName?: string | null;
+  }
+): Promise<NextResponse> {
+  const today = formatDateLocal(new Date());
+  const { error } = await supabase!.from('expenses').insert({
+    month_id: params.monthId,
+    amount: params.amount,
+    description: params.description,
     date: today,
-    category_id: category_id ?? null,
-    income_source_id: sourceId,
-    pocket_id: null,
+    category_id: params.categoryId,
+    income_source_id: params.incomeSourceId,
+    pocket_id: params.pocketId,
   });
 
   await clearSession(supabase!, profileId);
@@ -859,11 +1008,12 @@ async function handleIncomeSourceForExpense(
   if (error) {
     await sendMessage(token, chatId, '❌ No se pudo registrar el gasto. Intenta más tarde.');
   } else {
-    const fmt = `$${pending_amount.toLocaleString('es-CO')}`;
-    const desc = pending_description ? ` — ${pending_description}` : '';
-    const cat = category_name && category_name !== 'Sin categoría' ? `\n📂 ${category_name}` : '';
-    const srcLabel = parts.slice(2).join(':');
-    await sendMessage(token, chatId, `✅ *Gasto registrado*\n${fmt}${desc}${cat}\n💳 ${srcLabel}`, { parse_mode: 'Markdown' });
+    const fmt = `$${params.amount.toLocaleString('es-CO')}`;
+    const desc = params.description ? ` — ${params.description}` : '';
+    const cat = params.categoryName && params.categoryName !== 'Sin categoría' ? `\n📂 ${params.categoryName}` : '';
+    const src = params.incomeSourceLabel ? `\n💳 ${params.incomeSourceLabel}` : '';
+    const pocket = params.pocketName ? `\n👛 ${params.pocketName}` : '';
+    await sendMessage(token, chatId, `✅ *Gasto registrado*\n${fmt}${desc}${cat}${src}${pocket}`, { parse_mode: 'Markdown' });
     await sendMainMenu(token, chatId, '¿Qué más deseas hacer?');
   }
   return NextResponse.json({ ok: true });
